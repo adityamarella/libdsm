@@ -11,7 +11,7 @@
 #include "dsm.h"
 #include "request.h"
 #include "reply_handler.h"
-#include "net/dsm_server.h"
+#include "dsm_server.h"
 
 
 // The name the program was invoked with.

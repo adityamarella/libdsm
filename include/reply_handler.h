@@ -2,7 +2,7 @@
 #define DSM_REPLYS_H
 
 #include "dsmtypes.h"
-#include "net/comm.h"
+#include "comm.h"
 #include "request.h"
 
 typedef struct packed dsm_error_rep_struct {

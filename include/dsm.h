@@ -4,7 +4,7 @@
 #include "dsmtypes.h"
 #include "dsm_conf.h"
 #include "request.h"
-#include "net/dsm_server.h"
+#include "dsm_server.h"
 
 typedef struct dsm_page_meta_struct {
   dhandle chunk_id;                // chunk_id; this is maintained by the user

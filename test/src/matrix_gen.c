@@ -12,7 +12,7 @@
 #include "dsm.h"
 #include "request.h"
 #include "reply_handler.h"
-#include "net/dsm_server.h"
+#include "dsm_server.h"
 
 #define PROG_NAME "matrix_gen"
 

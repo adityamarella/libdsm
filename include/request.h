@@ -2,7 +2,7 @@
 #define DSM_REQUESTS_H
 
 #include "dsmtypes.h"
-#include "net/comm.h"
+#include "comm.h"
 
 typedef struct dsm_request_struct {
   comm c;

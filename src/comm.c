@@ -20,7 +20,7 @@
 
 #include "utils.h"
 #include "strings.h"
-#include "net/comm.h"
+#include "comm.h"
 
 /**
  * Returns the current time in milliseconds.

@@ -21,7 +21,7 @@
 #include "strings.h"
 #include "request.h"
 #include "reply_handler.h"
-#include "net/dsm_server.h"
+#include "dsm_server.h"
 
 // The URL to serve at - the port should probably be a command line argument
 // static const char *TCP_URL = "tcp://*:2048";
