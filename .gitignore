@@ -1,0 +1,77 @@
+# Ctags file
+tags
+
+# Object files
+*.o
+*.ko
+*.obj
+*.elf
+
+# Precompiled Headers
+*.gch
+*.pch
+
+# Libraries
+*.lib
+*.a
+*.la
+*.lo
+
+# Shared objects (inc. Windows DLLs)
+*.dll
+*.so
+*.so.*
+*.dylib
+
+# Executables
+*.exe
+*.out
+*.app
+*.i*86
+*.x86_64
+*.hex
+
+# Debug files
+*.dSYM/
+
+# Output directories
+obj/
+bin/
+lib/
+
+# Packaged files
+*.tar.gz
+
+# YCM Config files
+.ycm_extra_conf.py
+.ycm_extra_conf.pyc
+
+# Vagrant cache
+.vagrant*
+
+# Lib includes
+libs/include
+
+# Nanomsg's build
+*.deps
+*.dirstamp
+*.libs
+**/nanomsg/Makefile
+**/nanomsg/config.h
+**/nanomsg/config.log
+**/nanomsg/config.status
+**/nanomsg/doltcompile
+**/nanomsg/doltlibtool
+**/nanomsg/libnanomsg.pc
+**/nanomsg/libtool
+**/nanomsg/nanocat
+**/nanomsg/perf/inproc_lat
+**/nanomsg/perf/inproc_thr
+**/nanomsg/perf/local_lat
+**/nanomsg/perf/local_thr
+**/nanomsg/perf/remote_lat
+**/nanomsg/perf/remote_thr
+aclocal.m4
+
+# Scratch space
+scratch/
