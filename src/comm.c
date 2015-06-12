@@ -155,12 +155,13 @@ int comm_connect(comm *c, const char *host, uint32_t port) {
   c->url = (char*)calloc(sizeof(char), host_len + 32); 
   snprintf(c->url, host_len + 32, "tcp://%s:%d", host, port);
   
+  log("comm_connect url1: %s\n", c->url);
   // Connect the socket
   c->endpoint = nn_connect(c->sock, c->url);
   if (c->endpoint < 0) {
     print_err("Socket connection to '%s' failed: %s\n", c->url, strerror(errno));
     free(c->url);
-    return -errno;
+    return -1;
   }
   log("nn_connect sock=%d, url=%s, endpoint=%d\n", c->sock, c->url, c->endpoint);
   return 0;
@@ -168,17 +169,21 @@ int comm_connect(comm *c, const char *host, uint32_t port) {
 
 int comm_bind(comm *c, int port) {
   c->url = (char*)calloc(sizeof(char), 32); 
+  log("comm_bind url: %p\n", c->url);
   snprintf(c->url, 32, "tcp://*:%d", port);
+  log("comm_bind url1: %s\n", c->url);
   if((c->endpoint = nn_bind(c->sock, c->url)) < 0) {
     print_err("Failed to bind with url '%s': %s\n", c->url, strerror(errno));
     free(c->url);
-    return -errno;
+    return -1;
   }
   log("nn_bind sock=%d, url=%s, endpoint=%d\n", c->sock, c->url, c->endpoint);
   return 0;
 }
 
 int comm_shutdown(comm *c) {
+  log("comm_shutdown url: %p\n", c->url);
+  log("comm_shutdown url1: %s\n", c->url);
   free(c->url);
   nn_shutdown(c->sock, c->endpoint);
   log("nn_shutdown sock=%d, url=%s, endpoint=%d\n", c->sock, c->url, c->endpoint);
