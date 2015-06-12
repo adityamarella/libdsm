@@ -1,3 +1,39 @@
+##Architecture
+One master and several nodes. Master is also one of the nodes in the system and acts as a central manager controlling access to the shared memory. Shared memory is allocated and exposed to the user in chunks. The internal system divides these chunks into small 4k byte pages and atomically transfers these pages across nodes on demand. Each page has a owner and only the owner has write access to the page. Rest of the nodes can read the page if it is not marked dirty. We use read-replication and write-invalidation to maintain consistency.
+
+##Implementation
+The SIGSEGV fault handler and DSM daemon form the core of DSM. On page fault, the fault handler sends a request to the master asking for the page while the DSM Daemon thread listens for incoming requests from other nodes. Following sections give more details on the implementation - 
+
+#SIGSEGV Handler
+When a new chunk is allocated, libdsm restricts access to this chunk using mprotect flags PROT_NONE, PROT_READ, PROT_WRITE. If protection bit is set to PROT_NONE then a read or a write from process can result in SIGSEGV signal. If protection bit is set to PROT_READ then a write operation results in SIGSEGV signal. 
+
+The first node to call alloc becomes the owner of the chunk. The owner of the chunk can read or write to any page in the chunk, while others have to contact the master before reading or writing the page for the first time. When other nodes access the page for the first time sends a request to DSM master node to fetch the page content. After locating appropriate owner of this page, DSM master node fetches content of remote page and sends it back. 
+
+If the SIGSEGV signal is generated when protection bit is set to PROT_NONE then PROT_READ is set by the handler to mark this as a readable page and control is returned back to process. If this was a read operation then process will continue its normal operation. If this was a write operation, then DSM SIGSEGV handler changes protection bits from PROT_NONE to PROT_READ first and then PROT_READ to PROT_WRITE. This is done to differentiate read-only accesses from write accesses. An effect of this is that it results in two page faults i.e. two getpage requests for a single write access.
+
+#Data Consistency
+DSM uses read replication and write invalidation to maintain data consistency. When a getpage request is sent by SIGSEGV handler, it tags the request with READ or WRITE flag to indicate type of operation. Using this flag, the DSM master allows the owner of a page relinquish or retain ownership if the flag is READ only. Only content of requested page are given to SIGSEGV handler. This allows replication of read-only pages within DSM.
+
+On a WRITE operation, the DSM master first fetches content of page from the owner node and then sends an invalidate request (set protection bit to PROT_NONE) to all nodes which are using that page. Finally, the requester node is made the new owner of the page.
+
+This exclusive write access is taken back on first READ or WRITE request for that page from any other node. In this case, the page is given to the requestor node and the page is invalidated from all other nodes.
+
+
+##Internode communication
+
+#Based on nanomsg
+* DSM daemon runs on each node and handles incoming requests
+* Each non-master node opens a connection to the master
+* Master opens connections to all other nodes
+* REQ-REP pattern is used for communication
+
+#Requests & Replies
+* ALLOCCHUNK: allocates shared memory, updates page table on the master and returns whether the requestor node is the owner of the allocated memory. The first node to call allocchunk becomes the owner of the chunk. The alloc request from the rest of the nodes will increment the reference counter for that chunk on the master. Reference counting allows some of the nodes to still operate on the shared memory when other nodes have released it.
+* FREECHUNK: if reference counter becomes zero the shared memory is deallocated, otherwise the reference counter is decremented. Also, the corresponding page table entries and owner mappings are updated 
+* GETPAGE:  if the page is owned by node it is returned directly, otherwise master locates the page owner, sends a getpage request to the page owner, and sends it back to the requestor.
+* INVALIDATEPAGE: when a write happens on page; master sends invalidatepage requests to all the nodes using that page.
+
+
 ##Dependencies
 Our code runs on Ubuntu 14.04.
 
