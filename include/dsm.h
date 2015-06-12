@@ -50,7 +50,7 @@ typedef struct dsm_struct {
 
   // this is maintained by the master
   // for client this structure null
-  dsm_chunk_meta g_dsm_page_map[MAP_SIZE];   // make this a hash later; key:value -> chunk_id:list of page meta objects
+  dsm_chunk_meta g_dsm_page_map[NUM_CHUNKS];   // make this a hash later; key:value -> chunk_id:list of page meta objects
 
   // initialize another structure to maintain the base_ptrs
   // TODO: combine these two

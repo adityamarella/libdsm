@@ -41,7 +41,7 @@ dhandle get_chunk_id_for_addr(char *saddr) {
   char *base_ptr;
   size_t chunk_size;
 
-  for (i=0; i<MAP_SIZE; i++) {
+  for (i=0; i<NUM_CHUNKS; i++) {
     base_ptr = g_dsm->g_base_ptr[i];
     chunk_size = g_dsm->g_chunk_size[i];
     //log("base:%p sddar:%p end:%p\n", base_ptr, saddr, base_ptr+chunk_size);
@@ -265,8 +265,6 @@ int dsm_init(dsm *d) {
   if (d->is_master) {
     d->clients = (dsm_request*)calloc(c->num_nodes, sizeof(dsm_request));
     for (int i = 0; i < c->num_nodes; i++) {
-      if (i == c->master_idx)
-        continue;
       debug("dsm_request_init for host:port=%s:%d\n",
             c->hosts[i], c->ports[i]);
       dsm_request_init(&d->clients[i], c->hosts[i], c->ports[i]);
@@ -293,7 +291,7 @@ int dsm_close(dsm *d) {
     sleep(2);
     loop = 0;
     pthread_mutex_lock(&g_dsm->lock);
-    for (int i = 0; i < MAP_SIZE; i++) {
+    for (int i = 0; i < NUM_CHUNKS; i++) {
       if (g_dsm->g_chunk_size[i] != 0) {
         loop = 1;
         break;
