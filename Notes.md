@@ -1,0 +1,2 @@
+##Random Notes
+* to remove the lock around entire locatepage_internal function, first there should be a retry incase getpage fails. Why would getpage fail? If multiple nodes call locate page at the same time, some of the nodes could receive old/stale owner information. This gets me back to the very important detail of what to do when getpage fails? Current plan is to bail out after some retries. But what happens on the node which bails out? 
