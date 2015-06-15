@@ -11,6 +11,7 @@
     * when to update the pagetable in this case? Only soln - during locatepage
     * so the requirement is locatepage should always be followed by getpage? Is this a good design? locatepage - getpage should be a atomic transaction like operation either everything goes through or everything fails
     * When/how to call invalidate page? Right now master is sending invalidatepage to all the nodes which are accessing the page. 
+
 ##TODO
 * Very High: What to do when getpage fails? If mprotect flag is not changed then the read/write won't go through and this will go in an infinite loop. So, on failure mprotect should be called with PROT_READ|PROT_WRITE and the read or write should be allowed. This means temporarily this node may have inconsistent data; writes may be lost; reads may be stale. Okay, one solution is to allow read/write to go through but keep the FLAG bit set to PROT_NONE. This way on next read or write will make getpage request again. 
 * Low: Valgrind shows memory leak in nanomsg stack; don't know what is going on here.
