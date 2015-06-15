@@ -37,16 +37,11 @@ typedef struct dsm_struct {
   // dsm_request *clients is initialized here but
   // number of clients is taken from dsm_conf.
   //
-  // clients will open connection to master 
-  // this structure will be null for master
-  dsm_request master;
-
-  // master will open connections to clients
-  // this structure will be null for clients
+  // all nodes will open connection to all other nodes
   dsm_request *clients;
 
   // handle to listener server on this node
-  dsm_server s;
+  dsm_server *s;
 
   // this is maintained by the master
   // for client this structure null
@@ -61,7 +56,6 @@ typedef struct dsm_struct {
   // copy getpage contents into this buffer instead of 
   // directly copying to the fault address
   uint8_t *page_buffer;
-
 } dsm;
 
 /**

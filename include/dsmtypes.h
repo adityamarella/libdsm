@@ -23,6 +23,7 @@ typedef enum packed dsm_msg_type_enum {
   GETPAGE,
   LOCATEPAGE,
   INVALIDATEPAGE,
+  TERMINATE,
   ERROR,
   PAD_MSG_TYPE_ENUM = INT_MAX
 } dsm_msg_type;

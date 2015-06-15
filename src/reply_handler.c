@@ -110,32 +110,27 @@ void handle_freechunk(comm *c, dsm_freechunk_args *args) {
  */
 void handle_locatepage(comm *c, dsm_locatepage_args *args) {
   UNUSED(args);
-  debug("Handling locatepage for chunk %"PRIu64".\n", args->chunk_id);
+  log("Handling locatepage for chunk %"PRIu64", page_offset=%"PRIu64", %s:%d.\n", 
+      args->chunk_id, args->page_offset,
+      args->requestor_host, args->requestor_port);
+  uint32_t owner_idx = 0;
+  uint64_t nodes_accessing = 0;
 
-  uint8_t host[HOST_NAME];
-  uint32_t port = 0;
-
-  if (dsm_locatepage_internal(args->chunk_id, 
-        args->page_offset, (uint8_t**)&host, &port) < 0) {
+  if (dsm_locatepage_internal(args->chunk_id, args->page_offset, 
+        args->requestor_host, args->requestor_port,
+        &owner_idx, &nodes_accessing,
+        args->flags) < 0) {
     handle_error(c, DSM_ENOPAGE);
     return;
   }
   
-  size_t host_name_len = strlen((char*)host) + 1;
-  size_t reply_size = dsm_rep_size(locatepage) + host_name_len;
-  dsm_rep *reply = (dsm_rep*)malloc(reply_size);
-  reply->type = LOCATEPAGE;
-  reply->content.locatepage_rep.port = port;
-  memcpy(reply->content.locatepage_rep.host, host, host_name_len);
-
-#if 0
-  // Update new new owner of page
-  strncpy(g_dsm_map[i].host, args->host, HOST_NAME);
-  g_dsm_map[i].port = args->port;
-#endif
+  dsm_rep reply = make_reply(LOCATEPAGE, .locatepage_rep = {
+      .owner_idx = owner_idx,
+      .nodes_accessing = nodes_accessing,
+  });
 
   // Send reply
-  if(comm_send_data(c, reply, reply_size) < 0) {
+  if(comm_send_data(c, &reply, dsm_rep_size(locatepage)) < 0) {
     print_err("Failed to send LOCATEPAGE reply.\n");
   }
 }
@@ -153,14 +148,15 @@ void handle_getpage(comm *c, dsm_getpage_args *args) {
   log("Handling getpage for chunk_id=%"PRIu64", page_offset=%"PRIu64", host:port=%s:%d.\n", 
       args->chunk_id, args->page_offset, args->client_host, args->client_port);
 
-  uint64_t count = PAGESIZE;
+  uint32_t count = PAGESIZE;
   size_t reply_size = dsm_rep_size(getpage) + PAGESIZE;
   dsm_rep *reply = (dsm_rep*)malloc(reply_size);
   memset(reply, 0, reply_size);
 
   uint8_t *data = reply->content.getpage_rep.data;
   if (dsm_getpage_internal(args->chunk_id, args->page_offset, 
-    args->client_host, args->client_port, &data, &count, args->flags) < 0) {
+    args->client_host, args->client_port, 
+    &data, &count, args->flags) < 0) {
     handle_error(c, DSM_ENOPAGE);
     goto cleanup_reply;
   }
@@ -199,6 +195,28 @@ void handle_invalidatepage(comm *c, dsm_invalidatepage_args *args) {
 
   // Send reply
   if(comm_send_data(c, &reply, dsm_rep_size(invalidatepage)) < 0) {
+    print_err("Failed to send INVALIDATEPAGE reply.\n");
+  }
+}
+
+/**
+ * Not a traditional handler: should be called when a message doesn't have an
+ * implementation. Simply prints a note and sends an DSM_ENOTIMPL error reply
+ * to the client.
+ *
+ * @param sock the endpoint connected to the client
+ * @param error the msg_type that hasn't been implemented
+ */
+void handle_terminate(comm *c, dsm_terminate_args *args) {
+  UNUSED(args);
+  dsm_terminate_internal();
+
+  dsm_rep reply = make_reply(TERMINATE, .terminate_rep = {
+      .is_terminated = 1,
+  });
+
+  // Send reply
+  if(comm_send_data(c, &reply, dsm_rep_size(terminate)) < 0) {
     print_err("Failed to send INVALIDATEPAGE reply.\n");
   }
 }

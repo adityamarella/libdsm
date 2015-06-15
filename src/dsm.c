@@ -23,6 +23,13 @@ static struct sigaction sa;
 int PAGESIZE = 4096;
 dsm *g_dsm;
 
+extern 
+int is_same_node(const uint8_t *host1, uint32_t port1, 
+    const uint8_t *host2, uint32_t port2);
+
+extern  
+dsm_request* get_request_object(dsm *d, const uint8_t *host, uint32_t port);
+
 /**
  * The SIGTERM signal handler. Simply sets the 'terminated' variable to 1 to
  * inform the serve loop it should exit.
@@ -32,7 +39,7 @@ dsm *g_dsm;
 static void sigterm_handler(int sig) {
   UNUSED(sig);
   log("Got sigterm. Terminating server.\n");
-  g_dsm->s.terminated = 1;
+  g_dsm->s->terminated = 1;
 }
 
 static 
@@ -44,11 +51,69 @@ dhandle get_chunk_id_for_addr(char *saddr) {
   for (i=0; i<NUM_CHUNKS; i++) {
     base_ptr = g_dsm->g_base_ptr[i];
     chunk_size = g_dsm->g_chunk_size[i];
-    //log("base:%p sddar:%p end:%p\n", base_ptr, saddr, base_ptr+chunk_size);
     if (saddr >= base_ptr && saddr < base_ptr + chunk_size)
       return i; 
   }
   return -1;
+}
+
+/**
+ * Send locatepage to the master
+ * Send getpage to the owner
+ * Send invalidatepage to all other nodes accessing the page. If this is write access
+ */
+static void dsm_locate_and_getpage(dhandle chunk_id, dhandle page_offset, 
+    uint8_t **page_buffer, int flags) {
+
+  uint32_t owner_idx = 0;
+  uint64_t nodes_accessing = 0;
+
+  // locatepage from master
+  if (g_dsm->is_master) {
+    if (dsm_locatepage_internal(chunk_id, page_offset, 
+          g_dsm->host, g_dsm->port,
+          &owner_idx, &nodes_accessing, flags) < 0) {
+      print_err("locatepage_internal failed: \n");
+      assert(0); // for now this should not happen
+    }
+  } else {
+    if (dsm_request_locatepage(&g_dsm->clients[g_dsm->c.master_idx], 
+          chunk_id, page_offset, 
+          g_dsm->host, g_dsm->port,
+          &owner_idx, &nodes_accessing, flags) < 0) {
+      print_err("locatepage failed: \n");
+      assert(0); // for now this should not happen
+    } 
+  }
+
+  //getpage
+  dsm_request *r = &g_dsm->clients[owner_idx];
+  if (dsm_request_getpage(r, chunk_id, page_offset, 
+        g_dsm->host, g_dsm->port, 
+        page_buffer, flags) < 0) {
+    print_err("getpage failed: \n");
+    assert(0); 
+  }
+
+  if (flags & FLAG_PAGE_WRITE) {
+    dsm_conf *c = &g_dsm->c;
+
+    // Invalidate page for all hosts but the new owner
+    for (int i = 0; i < c->num_nodes; i++) {
+      if (!(nodes_accessing & ((uint64_t)1)<<i))
+        continue;
+
+      // Continue for requester host and request port
+      if (c->ports[i] == g_dsm->port)
+        continue;
+
+      log("Sending invalidatepage for chunk_id=%"PRIu64", page_offset=%"PRIu64", host:port=%s:%d.\n", 
+          chunk_id, page_offset, c->hosts[i], c->ports[i]);
+      dsm_request_invalidatepage(&g_dsm->clients[i], 
+          chunk_id, page_offset, 
+          g_dsm->host, g_dsm->port, flags);
+    }
+  }
 }
 
 static void dsm_sigsegv_handler(int sig, siginfo_t *si, void *unused) {
@@ -89,21 +154,8 @@ static void dsm_sigsegv_handler(int sig, siginfo_t *si, void *unused) {
     write_fault = 1;
     flags |= FLAG_PAGE_WRITE | FLAG_PAGE_NOUPDATE;
   }
- 
-  // Request page from master
-  if (g_dsm->is_master) {
-    uint64_t count;
-    if (dsm_getpage_internal(chunk_id, page_offset, 
-          g_dsm->host, g_dsm->port, &g_dsm->page_buffer, &count, flags) < 0) {
-      //TODO: we have not yet decided on what to do if page is not found;
-    }
-  } else {
-    dsm_request *r = &g_dsm->master;
-    if (dsm_request_getpage(r, chunk_id, page_offset, 
-          g_dsm->host, g_dsm->port, &g_dsm->page_buffer, flags) < 0) {
-      //TODO: we have not yet decided on what to do if page is not found;
-    }
-  }
+
+  dsm_locate_and_getpage(chunk_id, page_offset, &g_dsm->page_buffer, flags);
 
   // set the protection to READ/WRITE so that 
   // the page can be written
@@ -124,17 +176,14 @@ static void dsm_sigsegv_handler(int sig, siginfo_t *si, void *unused) {
     debug("write fault\n");
     if (mprotect(page_start_addr, PAGESIZE, PROT_READ | PROT_WRITE) == -1)
       print_err("mprotect\n");
-
     g_dsm->chunk_page_prot[chunk_id][page_offset] = PROT_WRITE;
   } else {
     debug("read fault\n");
     if (mprotect(page_start_addr, PAGESIZE, PROT_READ) == -1)
       print_err("mprotect\n");
-
     g_dsm->chunk_page_prot[chunk_id][page_offset] = PROT_READ;
   }
 }
-
 
 /**
  * Alloc function allocates a new shared memory chunk and return the pointer to that chunk.
@@ -182,7 +231,7 @@ void *dsm_alloc(dsm *d, dhandle chunk_id, ssize_t size) {
     // CM will maintain, ptr -> node, size mapping
     // When a request for a page comes from other nodes;
     //   - CM will search the entries to return the correct page
-    if ( (is_owner = dsm_request_allocchunk(&d->master, chunk_id, size, d->host, d->port)) < 0) {
+    if ( (is_owner = dsm_request_allocchunk(&d->clients[d->c.master_idx], chunk_id, size, d->host, d->port)) < 0) {
       handle_error("allocchunk failed\n");
     }
   }
@@ -213,19 +262,18 @@ void dsm_free(dsm *d, dhandle chunk_id) {
   if (d->is_master)
     dsm_freechunk_internal(chunk_id, d->host, d->port);
   else
-    dsm_request_freechunk(&d->master, chunk_id, d->host, d->port);
+    dsm_request_freechunk(&d->clients[d->c.master_idx], chunk_id, d->host, d->port);
 }
 
 static void *dsm_daemon_start(void *ptr) {
   dsm *d = (dsm*)ptr;
   log("Starting server on port %d\n", d->port);
   
-  dsm_server *s = &d->s;
+  dsm_server *s = (dsm_server*)malloc(sizeof(dsm_server));
+  memset(s, 0, sizeof(dsm_server));
+  d->s = s;
   dsm_server_init(s, "localhost", d->port);
   dsm_server_start(s);
-#if 0
-  dsm_server_close(s);
-#endif
   return 0;
 }
 
@@ -236,7 +284,7 @@ int dsm_init(dsm *d) {
   
   // reading configuration
   dsm_conf *c = &d->c;
-  if (dsm_conf_init(c, "dsm.conf") < 0) {
+  if (dsm_conf_init(c, "dsm.conf", (const char*)d->host, d->port) < 0) {
     print_err("Error parsing conf file\n");
     return -1;
   }
@@ -262,23 +310,12 @@ int dsm_init(dsm *d) {
     return -1;
   }
 
-  if (d->is_master) {
-    d->clients = (dsm_request*)calloc(c->num_nodes, sizeof(dsm_request));
-    for (int i = 0; i < c->num_nodes; i++) {
-      debug("dsm_request_init for host:port=%s:%d\n",
-            c->hosts[i], c->ports[i]);
-      dsm_request_init(&d->clients[i], c->hosts[i], c->ports[i]);
-    }
+  d->clients = (dsm_request*)calloc(c->num_nodes, sizeof(dsm_request));
+  for (int i = 0; i < c->num_nodes; i++) {
+    debug("dsm_request_init for host:port=%s:%d\n",
+          c->hosts[i], c->ports[i]);
+    dsm_request_init(&d->clients[i], c->hosts[i], c->ports[i]);
   }
-  
-  // initialize the requestor
-  // establish connection to the master node 
-  dsm_request *r = &d->master;
-  memset(r, 0, sizeof(dsm_request));
-  debug("dsm_request_init for host:port=%s:%d\n",
-        c->hosts[c->master_idx], c->ports[c->master_idx]);
-  dsm_request_init(r, c->hosts[c->master_idx], c->ports[c->master_idx]);
-  
   return 0;
 }
     
@@ -303,18 +340,18 @@ int dsm_close(dsm *d) {
 
   log("Master approved! Shutting down.\n");
   dsm_conf *c = &d->c;
-  d->s.terminated = 1;
   free(d->page_buffer);
-  pthread_kill(d->dsm_daemon, SIGTERM);
-  pthread_join(d->dsm_daemon, NULL); /* Wait until thread is finished */
+
+  // send terminate request to background thread
+  dsm_request_terminate(&d->clients[c->this_node_idx], d->host, d->port);
+
+  /* Wait until thread is finished */
+  pthread_join(d->dsm_daemon, NULL); 
   pthread_mutex_destroy(&d->lock);
-  if(d->is_master) {
-    for (int i = 0; i < c->num_nodes; i++)
-      dsm_request_close(&d->clients[i]);
-    free(d->clients);
-  } else {
-    dsm_request_close(&d->master);
-  }
+  for (int i = 0; i < c->num_nodes; i++)
+    dsm_request_close(&d->clients[i]);
+  free(d->clients);
+  free(d->s);
   dsm_conf_close(c);
   return 0;
 }

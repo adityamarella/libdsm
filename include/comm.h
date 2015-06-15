@@ -4,7 +4,6 @@
 #include <stdlib.h>
 
 typedef struct comm_struct {
-  char *url;
   int sock;
   int endpoint;
 } comm;

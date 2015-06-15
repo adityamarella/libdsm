@@ -5,11 +5,12 @@
 
 #include "dsm_conf.h"
 
-int dsm_conf_init(dsm_conf *c, const char *conf_file_path) {
+int dsm_conf_init(dsm_conf *c, const char *conf_file_path, const char *host, uint32_t port) {
 
   char buffer[256];
   char is_master;
   int i;
+  size_t this_host_len = strlen(host);
   FILE *fp = fopen(conf_file_path, "r");
 
   if (fscanf(fp, "%d", &c->num_nodes) == EOF)
@@ -35,6 +36,11 @@ int dsm_conf_init(dsm_conf *c, const char *conf_file_path) {
 
     if (is_master == '*') 
       c->master_idx = i;
+
+    if (c->ports[i] == port &&
+        strncmp(host, (char*)c->hosts[i], 
+          this_host_len < host_len?this_host_len:host_len) == 0 )
+      c->this_node_idx = i;
   }
 
   fclose(fp);
@@ -55,7 +61,7 @@ int test_conf_main() {
 
   dsm_conf c;
 
-  dsm_conf_init(&c, "dsm.conf");
+  dsm_conf_init(&c, "dsm.conf", "locahost", 8000);
 
    
   for (int i = 0; i < c.num_nodes; i++) {

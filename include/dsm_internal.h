@@ -11,12 +11,16 @@ int dsm_allocchunk_internal(dhandle chunk_id, size_t sz,
 int dsm_freechunk_internal(dhandle chunk_id, 
     const uint8_t *requestor_host, uint32_t requestor_port);
 
-int dsm_locatepage_internal(dhandle chunk_id, 
-    dhandle page_offset, uint8_t **host, uint32_t *port);
+int dsm_locatepage_internal(dhandle chunk_id, dhandle page_offset, 
+    uint8_t *requestor_host, uint32_t requestor_port, /*these are needed for updating the page map*/
+    uint32_t *owner_idx, uint64_t *nodes_accessing, 
+    uint32_t flags);
 
 int dsm_getpage_internal(dhandle chunk_id, dhandle page_offset,
-    uint8_t *host, uint32_t port, uint8_t **data, uint64_t *count, uint32_t flags);
+    uint8_t *host, uint32_t port, uint8_t **data, uint32_t *count, uint32_t flags);
 
 int dsm_invalidatepage_internal(dhandle chunk_id, dhandle page_offset);
+
+int dsm_terminate_internal();
 
 #endif

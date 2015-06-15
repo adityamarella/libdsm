@@ -60,8 +60,6 @@ dsm_rep *dsm_request_req_rep_f(dsm_request *r, dsm_req *request,
   assert(r->c.sock >= 0);
   assert(request);
 
-  debug("Sending request '%s' to '%s'\n", strmsgtype(request->type), r->c.url);
-
   // Send the request. If it fails, close the connection and return NULL.
   if (comm_send_data(&r->c, request, size) < 0) {
     return NULL;
@@ -130,7 +128,7 @@ int dsm_request_allocchunk(dsm_request *r, dhandle chunk_id, size_t size, uint8_
 
   log("Received allocchunk response.\n\n");
 
-  return 0;
+  return rep->content.allocchunk_rep.is_owner;
 }
 
 int dsm_request_freechunk(dsm_request *r, dhandle chunk_id, 
@@ -161,24 +159,32 @@ int dsm_request_freechunk(dsm_request *r, dhandle chunk_id,
  *
  * @return 0 on success, < 0 (a -errno) on error
  */
-int dsm_request_locatepage(dsm_request *r, dhandle chunk_id, 
-    dhandle page_offset, uint8_t **host, int *port) {
+int dsm_request_locatepage(dsm_request *r, 
+    dhandle chunk_id, dhandle page_offset,
+    uint8_t *requestor_host, uint32_t requestor_port, 
+    uint32_t *owner_idx, uint64_t *nodes_accessing,
+    uint32_t flags) {
+  log("Sending locatepage %"PRIu64", %"PRIu64", %s:%d\n", chunk_id, page_offset, requestor_host, requestor_port);
   dsm_req req = make_request(LOCATEPAGE, .locatepage_args = {
     .chunk_id = chunk_id,
     .page_offset = page_offset, 
+    .requestor_port = requestor_port,
+    .flags = flags,
   });
+  memcpy(req.content.locatepage_args.requestor_host, requestor_host, 
+      1+strlen((char*)requestor_host));
 
   dsm_rep *rep = dsm_request_req_rep(r, &req, dsm_req_size(locatepage));
   if (rep == NULL) {
     return -1;
   }
 
-  debug("Received locatepage response. Page is in %s:%d\n", rep->content.locatepage_rep.host,
-      rep->content.locatepage_rep.port); 
+  log("Received locatepage response. Page is in %"PRIu32", access bitmask = %"PRIu64"\n", 
+      rep->content.locatepage_rep.owner_idx,
+      rep->content.locatepage_rep.nodes_accessing); 
 
-  memcpy(*host, rep->content.locatepage_rep.host, 1+strlen((char*)rep->content.locatepage_rep.host));
-  *port = rep->content.locatepage_rep.port;
-
+  *owner_idx = rep->content.locatepage_rep.owner_idx;
+  *nodes_accessing = rep->content.locatepage_rep.nodes_accessing;
   comm_free(&r->c, rep);
   return 0;
 }
@@ -248,6 +254,19 @@ int dsm_request_invalidatepage(dsm_request *r, dhandle chunk_id,
     return -1;
   }
 
+  comm_free(&r->c, rep);
+  return 0;
+}
+
+int dsm_request_terminate(dsm_request *r, uint8_t *requestor_host, uint32_t requestor_port) {
+  dsm_req req = make_request(TERMINATE, .terminate_args = {
+      .requestor_port = requestor_port,
+      });
+  memcpy(req.content.terminate_args.requestor_host, requestor_host, 1+strlen((char*)requestor_host));
+  dsm_rep *rep = dsm_request_req_rep(r, &req, dsm_req_size(terminate));
+  if (rep == NULL) {
+    return -1;
+  }
   comm_free(&r->c, rep);
   return 0;
 }

@@ -55,23 +55,21 @@ int dsm_server_close(dsm_server *c) {
  * @param url the nanomsg formatted URL the server should listen at
  */
 int dsm_server_start(dsm_server *s) {
-  comm c;
+  comm *c = (comm*)malloc(sizeof(comm));
   int error;
 
+  memset(c, 0, sizeof(comm));
   // passing 0 as second argument because we will be receiving and replying to requests.
-  if ((error = comm_init(&c, 0)) < 0)
+  if ((error = comm_init(c, 0)) < 0)
     return error;
 
-  if ((error = comm_bind(&c, s->port)) < 0)
+  if ((error = comm_bind(c, s->port)) < 0)
     return error;
-
-  // okay, it all checks out. Let's loop, waiting for a message.
-  debug( "DSM listening on %s...\n", c.url);
 
   dsm_req *req = NULL;
   while (!s->terminated) {
     ssize_t bytes = 0;
-    req = _comm_receive_data(&c, &bytes, 0);
+    req = _comm_receive_data(c, &bytes, 0);
     if (req == NULL) {
       debug("Received NULL\n");
       continue;
@@ -82,31 +80,34 @@ int dsm_server_start(dsm_server *s) {
       msg_type = req->type;
     }
 
-    log("\n\nDSMServer=%s Received '%s' request.\n", c.url, strmsgtype(msg_type));
+    log("\n\nReceived '%s' request.\n", strmsgtype(msg_type));
     switch (req->type) {
       case ALLOCCHUNK:
-        handle_allocchunk(&c, &req->content.allocchunk_args);
+        handle_allocchunk(c, &req->content.allocchunk_args);
         break;
       case FREECHUNK:
-        handle_freechunk(&c, &req->content.freechunk_args);
+        handle_freechunk(c, &req->content.freechunk_args);
         break;
       case GETPAGE:
-        handle_getpage(&c, &req->content.getpage_args);
+        handle_getpage(c, &req->content.getpage_args);
         break;
       case LOCATEPAGE:
-        handle_locatepage(&c, &req->content.locatepage_args);
+        handle_locatepage(c, &req->content.locatepage_args);
         break;
       case INVALIDATEPAGE:
-        handle_invalidatepage(&c, &req->content.invalidatepage_args);
+        handle_invalidatepage(c, &req->content.invalidatepage_args);
+        break;
+      case TERMINATE:
+        handle_terminate(c, &req->content.terminate_args);
         break;
       default:
-        handle_unimplemented(&c, msg_type);
+        handle_unimplemented(c, msg_type);
         break;
     }
     log("Sent response\n");
     log("\n");
 
-    comm_free(&c, req);
+    comm_free(c, req);
   }
 
   // Check if we were terminated or simply failed
@@ -120,7 +121,8 @@ int dsm_server_start(dsm_server *s) {
   }
 
   // Cleanup
-  comm_shutdown(&c);
-  comm_close(&c);
+  comm_shutdown(c);
+  comm_close(c);
+  free(c);
   return 0;
 }

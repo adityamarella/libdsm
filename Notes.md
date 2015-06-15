@@ -9,6 +9,6 @@
     * otherwise connection creation overhead will make this horribly slow
     * call locatepage before calling getpage; locatepage will always be received by the master node
     * when to update the pagetable in this case? Only soln - during locatepage
-    * so the requirement is locatepage should always be followed by getpage? Is this a good design?
+    * so the requirement is locatepage should always be followed by getpage? Is this a good design? locatepage - getpage should be a atomic transaction like operation either everything goes through or everything fails
     * When/how to call invalidate page? Right now master is sending invalidatepage to all the nodes which are accessing the page. 
 * TODO: what to do when getpage fails? 

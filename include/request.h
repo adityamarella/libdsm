@@ -20,17 +20,17 @@ typedef struct dsm_request_struct {
 typedef struct packed dsm_getpage_args_struct {
   dhandle chunk_id;
   dhandle page_offset;
+  uint32_t flags;
   uint32_t client_port;
   uint8_t client_host[HOST_NAME];
-  uint32_t flags;
 } dsm_getpage_args;
 
 typedef struct packed dsm_invalidatepage_args_struct {
   dhandle chunk_id;
   dhandle page_offset;
+  uint32_t flags;
   uint32_t client_port;
   uint8_t client_host[HOST_NAME];
-  uint32_t flags;
 } dsm_invalidatepage_args;
 
 typedef struct packed dsm_allocchunk_args_struct {
@@ -48,8 +48,16 @@ typedef struct packed dsm_freechunk_args_struct {
 
 typedef struct packed dsm_locatepage_args_struct {
   dhandle chunk_id;
-  dhandle page_offset;         
+  dhandle page_offset;    
+  uint32_t flags;
+  uint32_t requestor_port;
+  uint8_t requestor_host[HOST_NAME];     // TODO: passing unnecessary data
 } dsm_locatepage_args;
+
+typedef struct packed dsm_terminate_args_struct {
+  uint32_t requestor_port;
+  uint8_t requestor_host[HOST_NAME];     // TODO: passing unnecessary data
+} dsm_terminate_args;
 
 typedef struct packed dsm_req_struct {
   dsm_msg_type type;
@@ -59,6 +67,7 @@ typedef struct packed dsm_req_struct {
     dsm_locatepage_args locatepage_args;
     dsm_allocchunk_args allocchunk_args;
     dsm_freechunk_args freechunk_args;
+    dsm_terminate_args terminate_args;
   } content;
 } dsm_req;
 
@@ -91,8 +100,20 @@ int dsm_request_init(dsm_request *r, uint8_t *host, uint32_t port);
 int dsm_request_close(dsm_request *c);
 int dsm_request_allocchunk(dsm_request *r, dhandle chunk_id, size_t size, uint8_t *host, uint32_t port);
 int dsm_request_freechunk(dsm_request *r, dhandle chunk_id, uint8_t *requestor_host, uint32_t requestor_port);
-int dsm_request_getpage(dsm_request *r, dhandle chunk_id, dhandle page_offset, uint8_t *host, uint32_t port, uint8_t **page_start_addr, uint32_t flags);
-int dsm_request_locatepage(dsm_request *r, dhandle chunk_id, dhandle page_offset, uint8_t **host, int *port);
+int dsm_request_getpage(dsm_request *r, 
+    dhandle chunk_id, dhandle page_offset, 
+    uint8_t *host, uint32_t port, 
+    uint8_t **page_start_addr, 
+    uint32_t flags);
+
+int dsm_request_locatepage(dsm_request *r, 
+    dhandle chunk_id, dhandle page_offset, 
+    uint8_t *requestor_host, uint32_t requestor_port, 
+    uint32_t *owner_idx, uint64_t *nodes_accessing,
+    uint32_t flags);
+
 int dsm_request_invalidatepage(dsm_request *r, dhandle chunk_id, dhandle page_offset, uint8_t *host, uint32_t port, uint32_t flags);
+
+int dsm_request_terminate(dsm_request *r, uint8_t *requestor_host, uint32_t requestor_port);
 
 #endif
