@@ -281,6 +281,17 @@ int dsm_freechunk_internal(dhandle chunk_id,
   return 0;
 }
 
+int dsm_barrier_internal() {
+  pthread_mutex_lock(&g_dsm->barrier_lock);
+  g_dsm->barrier_counter++;
+  if (g_dsm->barrier_counter >= (uint64_t)(g_dsm->c.num_nodes)) {
+    pthread_cond_signal(&g_dsm->barrier_cond);
+  }
+  pthread_mutex_unlock(&g_dsm->barrier_lock);
+  log("Barrier count:%"PRIu64"\n", g_dsm->barrier_counter);
+  return 0;
+}
+
 int dsm_terminate_internal() {
   g_dsm->s->terminated = 1;
   return 0;

@@ -36,6 +36,10 @@ typedef struct packed dsm_locatepage_rep_struct {
   uint64_t nodes_accessing;  // this bitmask will have the bits set for the indices which are accessing the page
 } dsm_locatepage_rep;
 
+typedef struct packed dsm_barrier_rep_struct {
+  uint8_t tmp;
+} dsm_barrier_rep;
+
 typedef struct packed dsm_rep_struct {
   dsm_msg_type type;
   union {
@@ -46,6 +50,7 @@ typedef struct packed dsm_rep_struct {
     dsm_freechunk_rep freechunk_rep;
     dsm_allocchunk_rep allocchunk_rep;
     dsm_terminate_rep terminate_rep;
+    dsm_barrier_rep barrier_rep;
   } content;
 } dsm_rep;
 
@@ -57,6 +62,7 @@ void handle_freechunk(comm *c, dsm_freechunk_args *args);
 void handle_getpage(comm *c, dsm_getpage_args *args);
 void handle_invalidatepage(comm *c, dsm_invalidatepage_args *args);
 void handle_locatepage(comm *c, dsm_locatepage_args *args);
+void handle_barrier(comm *c, dsm_barrier_args *args);
 void handle_terminate(comm *c, dsm_terminate_args *args);
 
 /*

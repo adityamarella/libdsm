@@ -97,7 +97,6 @@ static void dsm_locate_and_getpage(dhandle chunk_id, dhandle page_offset,
 
   if (flags & FLAG_PAGE_WRITE) {
     dsm_conf *c = &g_dsm->c;
-
     // Invalidate page for all hosts but the new owner
     for (int i = 0; i < c->num_nodes; i++) {
       if (!(nodes_accessing & ((uint64_t)1)<<i))
@@ -277,6 +276,25 @@ static void *dsm_daemon_start(void *ptr) {
   return 0;
 }
 
+int dsm_barrier_all(dsm *d) {
+  int i;
+  dsm_conf *c = &d->c;
+  
+  for (i = 0; i < c->num_nodes; i++) {
+    if (i == c->this_node_idx) continue;
+    dsm_request_barrier(&d->clients[i]);
+  }
+
+  pthread_mutex_lock(&d->barrier_lock);
+  while (d->barrier_counter < (uint64_t)c->num_nodes) {
+    pthread_cond_wait(&d->barrier_cond, &d->barrier_lock);
+  }
+  pthread_mutex_unlock(&d->barrier_lock);
+  // set it back to 1 and not 0
+  d->barrier_counter = 1;
+  return 0;
+}
+
 int dsm_init(dsm *d) {
   // storing the dsm structure in the global ctxt
   // to be accessible in the signal handler function
@@ -301,6 +319,18 @@ int dsm_init(dsm *d) {
     print_err("mutex init failed\n");
     return -1;
   }
+
+  if (pthread_mutex_init(&d->barrier_lock, NULL) != 0) {
+    print_err("barrier mutex init failed\n");
+    return -1;
+  }
+
+  if (pthread_cond_init(&d->barrier_cond, NULL) != 0) {
+    print_err("barrier cond init failed\n");
+    return -1;
+  }
+  
+  d->barrier_counter = 1;
 
   // initialize the server if this is a master
   // in future we might need bidirectional communication
@@ -346,8 +376,12 @@ int dsm_close(dsm *d) {
   dsm_request_terminate(&d->clients[c->this_node_idx], d->host, d->port);
 
   /* Wait until thread is finished */
-  pthread_join(d->dsm_daemon, NULL); 
+  pthread_join(d->dsm_daemon, NULL);
+
+  pthread_cond_destroy(&d->barrier_cond);
+  pthread_mutex_destroy(&d->barrier_lock);
   pthread_mutex_destroy(&d->lock);
+
   for (int i = 0; i < c->num_nodes; i++)
     dsm_request_close(&d->clients[i]);
   free(d->clients);

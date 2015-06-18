@@ -258,6 +258,16 @@ int dsm_request_invalidatepage(dsm_request *r, dhandle chunk_id,
   return 0;
 }
 
+int dsm_request_barrier(dsm_request *r) {
+  dsm_req req = make_request(BARRIER, .barrier_args = {.tmp=1});
+  dsm_rep *rep = dsm_request_req_rep(r, &req, dsm_req_size(barrier));
+  if (rep == NULL) {
+    return -1;
+  }
+  comm_free(&r->c, rep);
+  return 0;
+}
+
 int dsm_request_terminate(dsm_request *r, uint8_t *requestor_host, uint32_t requestor_port) {
   dsm_req req = make_request(TERMINATE, .terminate_args = {
       .requestor_port = requestor_port,

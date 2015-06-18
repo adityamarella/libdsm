@@ -100,6 +100,9 @@ int dsm_server_start(dsm_server *s) {
       case TERMINATE:
         handle_terminate(c, &req->content.terminate_args);
         break;
+      case BARRIER:
+        handle_barrier(c, &req->content.barrier_args);
+        break;
       default:
         handle_unimplemented(c, msg_type);
         break;

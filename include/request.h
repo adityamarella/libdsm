@@ -54,6 +54,10 @@ typedef struct packed dsm_locatepage_args_struct {
   uint8_t requestor_host[HOST_NAME];     // TODO: passing unnecessary data
 } dsm_locatepage_args;
 
+typedef struct packed dsm_barrier_args_struct {
+  uint8_t tmp;     // TODO: passing unnecessary data
+} dsm_barrier_args;
+
 typedef struct packed dsm_terminate_args_struct {
   uint32_t requestor_port;
   uint8_t requestor_host[HOST_NAME];     // TODO: passing unnecessary data
@@ -67,6 +71,7 @@ typedef struct packed dsm_req_struct {
     dsm_locatepage_args locatepage_args;
     dsm_allocchunk_args allocchunk_args;
     dsm_freechunk_args freechunk_args;
+    dsm_barrier_args barrier_args;
     dsm_terminate_args terminate_args;
   } content;
 } dsm_req;
@@ -113,6 +118,8 @@ int dsm_request_locatepage(dsm_request *r,
     uint32_t flags);
 
 int dsm_request_invalidatepage(dsm_request *r, dhandle chunk_id, dhandle page_offset, uint8_t *host, uint32_t port, uint32_t flags);
+
+int dsm_request_barrier(dsm_request *r);
 
 int dsm_request_terminate(dsm_request *r, uint8_t *requestor_host, uint32_t requestor_port);
 

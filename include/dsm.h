@@ -32,6 +32,11 @@ typedef struct dsm_struct {
   
   pthread_t dsm_daemon;
 
+  // cond variable for barrier
+  pthread_cond_t barrier_cond;
+  pthread_mutex_t barrier_lock;
+  volatile uint64_t barrier_counter;
+
   // TODO Make this cleaner. 
   // num_nodes can be accessed from dsm_conf object;
   // dsm_request *clients is initialized here but
@@ -56,6 +61,7 @@ typedef struct dsm_struct {
   // copy getpage contents into this buffer instead of 
   // directly copying to the fault address
   uint8_t *page_buffer;
+
 } dsm;
 
 /**
@@ -96,6 +102,8 @@ void* dsm_alloc(dsm *d, dhandle chunk_id, ssize_t size);
  * @param chunk id integer identifying the shared memory chunk
  */
 void dsm_free(dsm *d, dhandle chunk_id);
+
+int dsm_barrier_all(dsm *d);
 
 #define UNUSED(var) (void)(var)
 

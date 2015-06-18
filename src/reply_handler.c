@@ -199,6 +199,18 @@ void handle_invalidatepage(comm *c, dsm_invalidatepage_args *args) {
   }
 }
 
+void handle_barrier(comm *c, dsm_barrier_args *args) {
+  UNUSED(args);
+  dsm_barrier_internal();
+  dsm_rep reply = make_reply(BARRIER, .barrier_rep = {
+      .tmp = 1,
+  });
+  // Send reply
+  if(comm_send_data(c, &reply, dsm_rep_size(barrier)) < 0) {
+    print_err("Failed to send INVALIDATEPAGE reply.\n");
+  }
+}
+
 /**
  * Not a traditional handler: should be called when a message doesn't have an
  * implementation. Simply prints a note and sends an DSM_ENOTIMPL error reply

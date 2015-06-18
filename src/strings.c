@@ -24,6 +24,8 @@ const char *strmsgtype(dsm_msg_type msg_type) {
       return "LOCATEPAGE";
     case INVALIDATEPAGE:
       return "INVALIDATEPAGE";
+    case BARRIER:
+      return "BARRIER";
     case TERMINATE:
       return "TERMINATE";
     case ERROR:
