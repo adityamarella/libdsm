@@ -164,7 +164,7 @@ int dsm_request_locatepage(dsm_request *r,
     uint8_t *requestor_host, uint32_t requestor_port, 
     uint32_t *owner_idx, uint64_t *nodes_accessing,
     uint32_t flags) {
-  log("Sending locatepage %"PRIu64", %"PRIu64", %s:%d\n", chunk_id, page_offset, requestor_host, requestor_port);
+  log("Sending locatepage %"PRIu64", %"PRIu64", %s:%d\n", chunk_id, page_offset, r->host, r->port);
   dsm_req req = make_request(LOCATEPAGE, .locatepage_args = {
     .chunk_id = chunk_id,
     .page_offset = page_offset, 
@@ -197,7 +197,7 @@ int dsm_request_locatepage(dsm_request *r,
 int dsm_request_getpage(dsm_request *r, dhandle chunk_id, 
     dhandle page_offset, uint8_t *host, uint32_t port, 
     uint8_t **page_start_addr, uint32_t flags) {
-  log("Sending getpage %"PRIu64", %"PRIu64", %s:%d\n", chunk_id, page_offset, host, port);
+  log("Sending getpage %"PRIu64", %"PRIu64", %s:%d\n", chunk_id, page_offset, r->host, r->port);
   dsm_req req = make_request(GETPAGE, .getpage_args = {
     .chunk_id = chunk_id,
     .page_offset = page_offset,
@@ -247,7 +247,7 @@ int dsm_request_invalidatepage(dsm_request *r, dhandle chunk_id,
   });
 
   memcpy(&req.content.getpage_args.client_host, host, 1+strlen((char*)host));
-  log("Sending invalidatepage %"PRIu64", %"PRIu64", %s:%d\n", chunk_id, page_offset, host, port);
+  log("Sending invalidatepage %"PRIu64", %"PRIu64", %s:%d\n", chunk_id, page_offset, r->host, r->port);
 
   dsm_rep *rep = dsm_request_req_rep(r, &req, dsm_req_size(invalidatepage));
   if (rep == NULL) {
