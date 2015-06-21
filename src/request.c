@@ -130,7 +130,7 @@ int dsm_request_allocchunk(dsm_request *r, dhandle chunk_id, size_t size, uint8_
 
   log("Received allocchunk response.\n\n");
 
-  return 0;
+  return rep->content.allocchunk_rep.is_owner;
 }
 
 int dsm_request_freechunk(dsm_request *r, dhandle chunk_id, 

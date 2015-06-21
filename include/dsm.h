@@ -8,13 +8,15 @@
 
 typedef struct dsm_page_meta_struct {
   dhandle chunk_id;                // chunk_id; this is maintained by the user
-  uint8_t owner_host[HOST_NAME];    // node which owns this memory
+  pthread_mutex_t lock;
   uint32_t port;                    // port on the owner node is listening 
+  uint8_t owner_host[HOST_NAME];    // node which owns this memory
 } dsm_page_meta;
 
 typedef struct dsm_chunk_meta_struct {
   uint32_t count;               // count of pages in this chunk
   uint32_t ref_counter;         // used to maintain how many clients are using the shared memory
+  pthread_mutex_t lock;
   uint32_t clients_using[32];    // used to maintain the list of clients using this chunk
   dsm_page_meta *pages;
 } dsm_chunk_meta;
@@ -27,8 +29,6 @@ typedef struct dsm_struct {
   
   //private variables; user will not initialize these variables
   dsm_conf c;
-  
-  pthread_mutex_t lock;
   
   pthread_t dsm_daemon;
 

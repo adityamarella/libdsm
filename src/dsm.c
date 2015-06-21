@@ -150,70 +150,79 @@ static void dsm_sigsegv_handler(int sig, siginfo_t *si, void *unused) {
  * @return pointer to the shared memory chunk; NULL in case of error
  */
 void *dsm_alloc(dsm *d, dhandle chunk_id, ssize_t size) {
+  uint32_t i;
+
+  // register signal handler for the chunk
   sa.sa_flags = SA_SIGINFO;
   sigemptyset(&sa.sa_mask);
   sa.sa_sigaction = dsm_sigsegv_handler;
   if (sigaction(SIGSEGV, &sa, NULL) == -1) {
-    // TODO set errno correctly
     handle_error("sigaction");
   }
 
+  // get page size
   PAGESIZE = sysconf(_SC_PAGE_SIZE);
   if (PAGESIZE == -1)
     handle_error("sysconf");
-
   debug("---------- PAGESIZE: %d\n", PAGESIZE);
 
+  // allocate chunk memory
   void *buffer = d->g_base_ptr[chunk_id] = memalign(PAGESIZE, size);
   if (buffer == NULL)
     handle_error("memalign\n");
-
   memset(buffer, 0, size);
 
+  // initialize chunk related data structures
+  uint32_t num_pages = 1 + size/PAGESIZE;
   d->g_chunk_size[chunk_id] = size;
- 
-  int is_owner = 0;
-  // after informing CM register signal handlers
-  if(d->is_master) {
-    if ( (is_owner = dsm_allocchunk_internal(chunk_id, size, d->host, d->port)) < 0) 
-      handle_error("allocchunk failed\n");
-  } else {
-    // synchronously inform the Central Manager about the memory allocation
-    // CM will maintain, ptr -> node, size mapping
-    // When a request for a page comes from other nodes;
-    //   - CM will search the entries to return the correct page
-    if ( (is_owner = dsm_request_allocchunk(&d->master, chunk_id, size, d->host, d->port)) < 0) {
-      handle_error("allocchunk failed\n");
+  dsm_chunk_meta *chunk_meta = &d->g_dsm_page_map[chunk_id];
+  
+  if (!d->is_master) {
+    // for master this is allocated in the internal function
+    if (pthread_mutex_init(&chunk_meta->lock, NULL) != 0) {
+      handle_error("mutex init failed\n");
+    }
+
+    log("Allocing pages\n");
+    chunk_meta->pages = (dsm_page_meta*)calloc(num_pages, sizeof(dsm_page_meta));
+    for (i = 0; i < num_pages; i++) {
+      if (pthread_mutex_init(&chunk_meta->pages[i].lock, NULL) != 0) {
+        handle_error("mutex init failed\n");
+      }
     }
   }
+ 
+  int is_owner = 0;
+  // synchronously inform the master about the memory allocation
+  // When a request for a page comes from other nodes;
+  //   master will get the chunk_meta, page_meta for the request and
+  //   return the page
+  if ( (is_owner = dsm_request_allocchunk(&d->master, chunk_id, size, d->host, d->port)) < 0) {
+    handle_error("allocchunk failed\n");
+  }
+  log("Allocchunk success. I am the owner?  %s.\n", 
+      is_owner==1?"Yes.":"No."); 
 
   if(is_owner) {
-    log("setting buffer=%p size=%ld PROT_READ | PROT_WRITE\n", buffer, size);
     if (mprotect(buffer, size, PROT_READ | PROT_WRITE) == -1)
       handle_error("mprotect\n");
     for (int i = 0; i < size / PAGESIZE; i++)
       g_dsm->chunk_page_prot[chunk_id][i] = PROT_WRITE;
 
   } else { 
-    log("setting buffer=%p size=%ld PROT_NONE\n", buffer, size);
     if (mprotect(buffer, size, PROT_NONE) == -1)
       handle_error("mprotect\n");
     for (int i = 0; i < size / PAGESIZE; i++)
       g_dsm->chunk_page_prot[chunk_id][i] = PROT_NONE;
   }
-  log("Allocchunk success. I am the owner?  %s.\n", 
-      is_owner==1?"Yes.":"No."); 
 
   return buffer;
 }
 
 void dsm_free(dsm *d, dhandle chunk_id) {
   UNUSED(d);
-  // synchronous send free request to central manager
-  if (d->is_master)
-    dsm_freechunk_internal(chunk_id, d->host, d->port);
-  else
-    dsm_request_freechunk(&d->master, chunk_id, d->host, d->port);
+  dsm_request_freechunk(&d->master, chunk_id, d->host, d->port);
+  
 }
 
 static void *dsm_daemon_start(void *ptr) {
@@ -249,10 +258,6 @@ int dsm_init(dsm *d) {
   act.sa_handler = sigterm_handler;
   sigaction(SIGTERM, &act, NULL);
 
-  if (pthread_mutex_init(&d->lock, NULL) != 0) {
-    print_err("mutex init failed\n");
-    return -1;
-  }
 
   // initialize the server if this is a master
   // in future we might need bidirectional communication
@@ -290,14 +295,12 @@ int dsm_close(dsm *d) {
   do {
     sleep(2);
     loop = 0;
-    pthread_mutex_lock(&g_dsm->lock);
     for (int i = 0; i < NUM_CHUNKS; i++) {
       if (g_dsm->g_chunk_size[i] != 0) {
         loop = 1;
         break;
       }
     } 
-    pthread_mutex_unlock(&g_dsm->lock);
     log("Waiting for master's approval.\n");
   } while (loop);
 
@@ -307,7 +310,6 @@ int dsm_close(dsm *d) {
   free(d->page_buffer);
   pthread_kill(d->dsm_daemon, SIGTERM);
   pthread_join(d->dsm_daemon, NULL); /* Wait until thread is finished */
-  pthread_mutex_destroy(&d->lock);
   if(d->is_master) {
     for (int i = 0; i < c->num_nodes; i++)
       dsm_request_close(&d->clients[i]);
