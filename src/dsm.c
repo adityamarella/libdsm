@@ -222,7 +222,6 @@ void *dsm_alloc(dsm *d, dhandle chunk_id, ssize_t size) {
 void dsm_free(dsm *d, dhandle chunk_id) {
   UNUSED(d);
   dsm_request_freechunk(&d->master, chunk_id, d->host, d->port);
-  
 }
 
 static void *dsm_daemon_start(void *ptr) {

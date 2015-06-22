@@ -387,8 +387,7 @@ int dsm_freechunk_internal(dhandle chunk_id,
     chunk_meta->ref_counter--;
     chunk_meta->clients_using[get_request_idx(g_dsm, requestor_host, requestor_port)] = 0;
     log("ref counter %d\n", chunk_meta->ref_counter);
-    if(chunk_meta->ref_counter != 0)
-      fetch_remotely_owned_pages(chunk_id, requestor_host, requestor_port);
+    fetch_remotely_owned_pages(chunk_id, requestor_host, requestor_port);
     pthread_mutex_unlock(&chunk_meta->lock);
   } 
   
