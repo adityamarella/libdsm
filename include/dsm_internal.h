@@ -19,4 +19,6 @@ int dsm_getpage_internal(dhandle chunk_id, dhandle page_offset,
 
 int dsm_invalidatepage_internal(dhandle chunk_id, dhandle page_offset);
 
+int dsm_barrier_internal();
+int dsm_terminate_internal();
 #endif

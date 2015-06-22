@@ -395,3 +395,27 @@ int dsm_freechunk_internal(dhandle chunk_id,
     dsm_really_freechunk(chunk_id); // MARK1
   return 0;
 }
+
+int dsm_barrier_internal() {
+  dsm_conf *c = &g_dsm->c;
+  pthread_mutex_lock(&g_dsm->barrier_lock);
+  if (g_dsm->is_master && g_dsm->barrier_counter < (uint64_t)(g_dsm->c.num_nodes)) {
+    g_dsm->barrier_counter++;
+    if (g_dsm->barrier_counter >= (uint64_t)(g_dsm->c.num_nodes)) {
+      for (int i = 0; i < c->num_nodes; i++) {
+        dsm_request_barrier(&g_dsm->clients[i]); 
+      }
+      pthread_cond_signal(&g_dsm->barrier_cond);
+    }
+    log("Barrier count:%"PRIu64"\n", g_dsm->barrier_counter);
+  } else {
+    pthread_cond_signal(&g_dsm->barrier_cond);
+  }
+  pthread_mutex_unlock(&g_dsm->barrier_lock);
+  return 0;
+}
+
+int dsm_terminate_internal() {
+  g_dsm->s.terminated = 1;
+  return 0;
+}

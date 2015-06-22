@@ -237,6 +237,18 @@ static void *dsm_daemon_start(void *ptr) {
   return 0;
 }
 
+int dsm_barrier_all(dsm *d) {
+  dsm_conf *c = &d->c;
+  dsm_request_barrier(&d->master);
+  
+  pthread_mutex_lock(&d->barrier_lock);
+  while (d->barrier_counter < (uint64_t)c->num_nodes) {
+    pthread_cond_wait(&d->barrier_cond, &d->barrier_lock);
+  }
+  pthread_mutex_unlock(&d->barrier_lock);
+  return 0;
+}
+
 int dsm_init(dsm *d) {
   // storing the dsm structure in the global ctxt
   // to be accessible in the signal handler function
@@ -257,6 +269,18 @@ int dsm_init(dsm *d) {
   act.sa_handler = sigterm_handler;
   sigaction(SIGTERM, &act, NULL);
 
+
+  if (pthread_mutex_init(&d->barrier_lock, NULL) != 0) {
+    print_err("barrier mutex init failed\n");
+    return -1;
+  }
+
+  if (pthread_cond_init(&d->barrier_cond, NULL) != 0) {
+    print_err("barrier cond init failed\n");
+    return -1;
+  }
+  
+  d->barrier_counter = 1;
 
   // initialize the server if this is a master
   // in future we might need bidirectional communication
@@ -310,6 +334,8 @@ int dsm_close(dsm *d) {
   free(d->page_buffer);
   pthread_kill(d->dsm_daemon, SIGTERM);
   pthread_join(d->dsm_daemon, NULL); /* Wait until thread is finished */
+  pthread_cond_destroy(&d->barrier_cond);
+  pthread_mutex_destroy(&d->barrier_lock);
   if(d->is_master) {
     for (int i = 0; i < c->num_nodes; i++)
       dsm_request_close(&d->clients[i]);
