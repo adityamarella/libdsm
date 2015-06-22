@@ -71,23 +71,22 @@ static int dsm_really_freechunk(dhandle chunk_id) {
   } 
 
   for (uint32_t i = 0; i < chunk_meta->count; i++)
-    g_dsm->chunk_page_prot[chunk_id][i] = PROT_WRITE;
+    chunk_meta->pages[i].page_prot = PROT_WRITE;
 
   for (i = 0; i < chunk_meta->count; i++) {
     if (pthread_mutex_destroy(&chunk_meta->pages[i].lock) != 0) {
-      print_err("mutex destroy failed\n");
+      print_err("mutex destroy failed for chunk %"PRIu64", page %"PRIu32"\n", chunk_id, i);
       return -1;
     }
   }
   
   free(g_dsm->g_base_ptr[chunk_id]);
   g_dsm->g_chunk_size[chunk_id] = 0;
-  memset(&g_dsm->chunk_page_prot[chunk_id], 0, MAP_SIZE);
   chunk_meta->count = 0;
   free(chunk_meta->pages);
   
   if (pthread_mutex_destroy(&chunk_meta->lock) != 0) {
-    print_err("mutex destroy failed\n");
+    print_err("mutex destroy failed, error=%s\n", strerror(errno));
     return -1;
   }
   return 0;
@@ -117,10 +116,10 @@ static int fetch_remotely_owned_pages(dhandle chunk_id,
       dsm_request_getpage(requestor, chunk_id, page_offset, g_dsm->host, 
           g_dsm->port, (uint8_t**)&page_start_addr, FLAG_PAGE_READ);
 
-      g_dsm->chunk_page_prot[chunk_id][page_offset] = PROT_WRITE;
       
       // finally update the page map
       dsm_page_meta *page_meta = &chunk_meta->pages[page_offset];
+      page_meta->page_prot = PROT_WRITE;
       memcpy(page_meta->owner_host, g_dsm->host, strlen((char*)g_dsm->host) + 1);
       page_meta->port = g_dsm->port;
     }
@@ -147,7 +146,7 @@ int dsm_invalidatepage_internal(dhandle chunk_id, dhandle page_offset) {
   }
   log("Acquiring mutex lock, chunk_id: %"PRIu64", %"PRIu64"\n", chunk_id, page_offset);
   pthread_mutex_lock(&page_meta->lock);
-  g_dsm->chunk_page_prot[chunk_id][page_offset] = PROT_NONE;
+  page_meta->page_prot = PROT_NONE;
   pthread_mutex_unlock(&page_meta->lock);
   log("Released lock, chunk_id: %"PRIu64", %"PRIu64"\n", chunk_id, page_offset);
   return 0;
@@ -197,7 +196,7 @@ int dsm_getpage_internal(dhandle chunk_id, dhandle page_offset,
     *count = PAGESIZE; 
 
     if (flags & FLAG_PAGE_WRITE ||
-        ((flags & FLAG_PAGE_READ) && g_dsm->chunk_page_prot[chunk_id][page_offset] == PROT_WRITE)) {
+        ((flags & FLAG_PAGE_READ) && page_meta->page_prot == PROT_WRITE)) {
       // Change permissions to NONE
       // set the new owner for this page
       if ( (error = mprotect(page_start_addr, PAGESIZE, PROT_NONE)) == -1) {
@@ -205,7 +204,7 @@ int dsm_getpage_internal(dhandle chunk_id, dhandle page_offset,
         goto cleanup_unlock;
       }
 
-      g_dsm->chunk_page_prot[chunk_id][page_offset] = PROT_NONE;
+      page_meta->page_prot = PROT_NONE;
       log("Client %s:%d requested write page chunk_id=%ld page_offset=%ld\n",
           requestor_host, requestor_port, chunk_id, page_offset);
     } else {
@@ -244,7 +243,7 @@ int dsm_getpage_internal(dhandle chunk_id, dhandle page_offset,
       print_err("mprotect failed for addr=%p, error=%s\n", page_start_addr, strerror(errno));
       goto cleanup_unlock;
     }
-    g_dsm->chunk_page_prot[chunk_id][page_offset] = PROT_NONE;
+    page_meta->page_prot = PROT_NONE;
   } else {
     // this machine is not the owner of the page
     // get the page from the owner
@@ -281,17 +280,17 @@ int dsm_getpage_internal(dhandle chunk_id, dhandle page_offset,
           print_err("mprotect failed for addr=%p, error=%s\n", page_start_addr, strerror(errno));
           goto cleanup_unlock;
         }
-        g_dsm->chunk_page_prot[chunk_id][page_offset] = PROT_NONE;
+        page_meta->page_prot = PROT_NONE;
         continue;
       }
 
-      log("Sending invalidatepage for chunk_id=%"PRIu64", page_offset=%"PRIu64", host:port=%s:%d.\n", 
-          chunk_id, page_offset, c->hosts[i], c->ports[i]);
-
       // send invalidate to only those clients which are using this chunk
-      if (chunk_meta->clients_using[i])
+      if (chunk_meta->clients_using[i]) {
+        log("Sending invalidatepage for chunk_id=%"PRIu64", page_offset=%"PRIu64", host:port=%s:%d.\n", 
+            chunk_id, page_offset, c->hosts[i], c->ports[i]);
         dsm_request_invalidatepage(&g_dsm->clients[i], chunk_id, 
                                  page_offset, c->hosts[i], c->ports[i], flags);
+      }
     }
   }
 

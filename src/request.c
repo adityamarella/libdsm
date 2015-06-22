@@ -60,7 +60,7 @@ dsm_rep *dsm_request_req_rep_f(dsm_request *r, dsm_req *request,
   assert(r->c.sock >= 0);
   assert(request);
 
-  debug("Sending request '%s' to '%s'\n", strmsgtype(request->type), r->c.url);
+  debug("Sending request '%s' to '%s:%d'\n", strmsgtype(request->type), r->host, r->port);
 
   // Send the request. If it fails, close the connection and return NULL.
   if (comm_send_data(&r->c, request, size) < 0) {

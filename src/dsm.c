@@ -78,13 +78,14 @@ static void dsm_sigsegv_handler(int sig, siginfo_t *si, void *unused) {
   // Build page offset
   dhandle page_offset = (dhandle)get_page_offset((char *)(si->si_addr), base_ptr);
   char *page_start_addr = base_ptr + PAGESIZE*page_offset;
+  dsm_chunk_meta *chunk_meta = &g_dsm->g_dsm_page_map[chunk_id];
 
   // NONE to READ (read-only) to WRITE (read write) transition
-  if (g_dsm->chunk_page_prot[chunk_id][page_offset] == PROT_NONE) {
+  if (chunk_meta->pages[page_offset].page_prot == PROT_NONE) {
     log("read fault..................\n");
     write_fault = 0;
     flags |= FLAG_PAGE_READ;
-  } else if (g_dsm->chunk_page_prot[chunk_id][page_offset] == PROT_READ) {
+  } else if (chunk_meta->pages[page_offset].page_prot == PROT_READ) {
     log("write fault..................\n");
     write_fault = 1;
     flags |= FLAG_PAGE_WRITE | FLAG_PAGE_NOUPDATE;
@@ -124,14 +125,12 @@ static void dsm_sigsegv_handler(int sig, siginfo_t *si, void *unused) {
     debug("write fault\n");
     if (mprotect(page_start_addr, PAGESIZE, PROT_READ | PROT_WRITE) == -1)
       print_err("mprotect\n");
-
-    g_dsm->chunk_page_prot[chunk_id][page_offset] = PROT_WRITE;
+    chunk_meta->pages[page_offset].page_prot = PROT_WRITE;
   } else {
     debug("read fault\n");
     if (mprotect(page_start_addr, PAGESIZE, PROT_READ) == -1)
       print_err("mprotect\n");
-
-    g_dsm->chunk_page_prot[chunk_id][page_offset] = PROT_READ;
+    chunk_meta->pages[page_offset].page_prot = PROT_READ;
   }
 }
 
@@ -207,15 +206,14 @@ void *dsm_alloc(dsm *d, dhandle chunk_id, ssize_t size) {
     if (mprotect(buffer, size, PROT_READ | PROT_WRITE) == -1)
       handle_error("mprotect\n");
     for (int i = 0; i < size / PAGESIZE; i++)
-      g_dsm->chunk_page_prot[chunk_id][i] = PROT_WRITE;
+      chunk_meta->pages[i].page_prot = PROT_WRITE;
 
   } else { 
     if (mprotect(buffer, size, PROT_NONE) == -1)
       handle_error("mprotect\n");
     for (int i = 0; i < size / PAGESIZE; i++)
-      g_dsm->chunk_page_prot[chunk_id][i] = PROT_NONE;
+      chunk_meta->pages[i].page_prot = PROT_NONE;
   }
-
   return buffer;
 }
 

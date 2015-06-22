@@ -66,7 +66,7 @@ int dsm_server_start(dsm_server *s) {
     return error;
 
   // okay, it all checks out. Let's loop, waiting for a message.
-  debug( "DSM listening on %s...\n", c.url);
+  debug( "DSM listening on %d...\n", s->port);
 
   dsm_req *req = NULL;
   while (!s->terminated) {
@@ -82,7 +82,7 @@ int dsm_server_start(dsm_server *s) {
       msg_type = req->type;
     }
 
-    log("\n\nDSMServer=%s Received '%s' request.\n", c.url, strmsgtype(msg_type));
+    log("\n\nReceived '%s' request.\n", strmsgtype(msg_type));
     switch (req->type) {
       case ALLOCCHUNK:
         handle_allocchunk(&c, &req->content.allocchunk_args);

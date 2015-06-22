@@ -103,7 +103,6 @@ void* _comm_receive_data(comm *c, ssize_t *size, int flags) {
     debug("Receive failed: timed out (%d bytes).\n", bytes);
     return NULL;
   }
-  log("nn_recv data=%p\n", data);
 
   // All is well. Set `size` if it was passed in.
   if (size) *size = bytes;
@@ -123,7 +122,6 @@ void* comm_receive_data(comm *c, ssize_t *size) {
 
 void comm_free(comm *c, void *p) {
   UNUSED(c);
-  log("nn_freemsg data=%p\n", p);
   nn_freemsg(p);
 }
 
@@ -151,47 +149,38 @@ int comm_init(comm *c, int is_req) {
  */
 int comm_connect(comm *c, const char *host, uint32_t port) {
   size_t host_len = strlen(host);
+  char *url = (char*)calloc(sizeof(char), host_len + 32); 
+  snprintf(url, host_len + 32, "tcp://%s:%d", host, port);
   
-  c->url = (char*)calloc(sizeof(char), host_len + 32); 
-  snprintf(c->url, host_len + 32, "tcp://%s:%d", host, port);
-  
-  log("comm_connect url1: %s\n", c->url);
   // Connect the socket
-  c->endpoint = nn_connect(c->sock, c->url);
+  c->endpoint = nn_connect(c->sock, url);
   if (c->endpoint < 0) {
-    print_err("Socket connection to '%s' failed: %s\n", c->url, strerror(errno));
-    free(c->url);
+    print_err("Socket connection to '%s' failed: %s\n", url, strerror(errno));
+    free(url);
     return -1;
   }
-  log("nn_connect sock=%d, url=%s, endpoint=%d\n", c->sock, c->url, c->endpoint);
+  free(url);
   return 0;
 }
 
 int comm_bind(comm *c, int port) {
-  c->url = (char*)calloc(sizeof(char), 32); 
-  log("comm_bind url: %p\n", c->url);
-  snprintf(c->url, 32, "tcp://*:%d", port);
-  log("comm_bind url1: %s\n", c->url);
-  if((c->endpoint = nn_bind(c->sock, c->url)) < 0) {
-    print_err("Failed to bind with url '%s': %s\n", c->url, strerror(errno));
-    free(c->url);
+  char *url = (char*)calloc(sizeof(char), 32); 
+  snprintf(url, 32, "tcp://*:%d", port);
+  if((c->endpoint = nn_bind(c->sock, url)) < 0) {
+    print_err("Failed to bind with url '%s': %s\n", url, strerror(errno));
+    free(url);
     return -1;
   }
-  log("nn_bind sock=%d, url=%s, endpoint=%d\n", c->sock, c->url, c->endpoint);
+  free(url);
   return 0;
 }
 
 int comm_shutdown(comm *c) {
-  log("comm_shutdown url: %p\n", c->url);
-  log("comm_shutdown url1: %s\n", c->url);
-  free(c->url);
   nn_shutdown(c->sock, c->endpoint);
-  log("nn_shutdown sock=%d, url=%s, endpoint=%d\n", c->sock, c->url, c->endpoint);
   return 0;
 }
 
 int comm_close(comm *c) {
   nn_close(c->sock);
-  log("nn_close sock=%d\n", c->sock);
   return 0;
 }

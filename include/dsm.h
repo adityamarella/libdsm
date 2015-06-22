@@ -9,6 +9,7 @@
 typedef struct dsm_page_meta_struct {
   dhandle chunk_id;                // chunk_id; this is maintained by the user
   pthread_mutex_t lock;
+  int page_prot;
   uint32_t port;                    // port on the owner node is listening 
   uint8_t owner_host[HOST_NAME];    // node which owns this memory
 } dsm_page_meta;
@@ -25,7 +26,6 @@ typedef struct dsm_struct {
   uint8_t is_master;
   uint8_t host[HOST_NAME];                   // master host name
   uint32_t port;                             // port on which master is listening
-  
   
   //private variables; user will not initialize these variables
   dsm_conf c;
@@ -56,7 +56,6 @@ typedef struct dsm_struct {
   // TODO: combine these two
   char *g_base_ptr[NUM_CHUNKS];
   size_t g_chunk_size[NUM_CHUNKS];
-  int chunk_page_prot[NUM_CHUNKS][MAP_SIZE];
 
   // copy getpage contents into this buffer instead of 
   // directly copying to the fault address
