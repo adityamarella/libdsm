@@ -65,8 +65,8 @@ int get_request_idx(dsm *d, const uint8_t *host, uint32_t port) {
 static int dsm_really_freechunk(dhandle chunk_id) { 
   uint32_t i;
   dsm_chunk_meta *chunk_meta = &g_dsm->g_dsm_page_map[chunk_id];
-  if (mprotect(g_dsm->g_base_ptr[chunk_id], g_dsm->g_chunk_size[chunk_id], PROT_READ | PROT_WRITE) == -1) {
-    print_err("mprotect failed for addr=%p, error=%s\n", g_dsm->g_base_ptr[chunk_id], strerror(errno));
+  if (mprotect(chunk_meta->g_base_ptr, chunk_meta->g_chunk_size, PROT_READ | PROT_WRITE) == -1) {
+    print_err("mprotect failed for addr=%p, error=%s\n", chunk_meta->g_base_ptr, strerror(errno));
     return -1;
   } 
 
@@ -80,8 +80,8 @@ static int dsm_really_freechunk(dhandle chunk_id) {
     }
   }
   
-  free(g_dsm->g_base_ptr[chunk_id]);
-  g_dsm->g_chunk_size[chunk_id] = 0;
+  free(chunk_meta->g_base_ptr);
+  chunk_meta->g_chunk_size = 0;
   chunk_meta->count = 0;
   free(chunk_meta->pages);
   
@@ -108,7 +108,7 @@ static int fetch_remotely_owned_pages(dhandle chunk_id,
   for (page_offset = 0; page_offset < chunk_meta->count; page_offset++) {
     dsm_page_meta *m = &chunk_meta->pages[page_offset];
     if (0 == is_same_node(requestor_host, requestor_port, m->owner_host, m->port)) {
-      char *page_start_addr = g_dsm->g_base_ptr[chunk_id] + page_offset * PAGESIZE;
+      char *page_start_addr = chunk_meta->g_base_ptr + page_offset * PAGESIZE;
       if (mprotect(page_start_addr, PAGESIZE, PROT_READ | PROT_WRITE) == -1) {
         print_err("mprotect failed for addr=%p, error=%s\n", page_start_addr, strerror(errno));
         return -1;
@@ -134,7 +134,7 @@ static int fetch_remotely_owned_pages(dhandle chunk_id,
 int dsm_invalidatepage_internal(dhandle chunk_id, dhandle page_offset) {
   dsm_chunk_meta *chunk_meta = &g_dsm->g_dsm_page_map[chunk_id];
   dsm_page_meta *page_meta = &chunk_meta->pages[page_offset];
-  char *base_ptr = g_dsm->g_base_ptr[chunk_id];
+  char *base_ptr = chunk_meta->g_base_ptr;
   char *page_start_addr = base_ptr + page_offset * PAGESIZE;
 
   // Change permissions to NONE
@@ -186,7 +186,7 @@ int dsm_getpage_internal(dhandle chunk_id, dhandle page_offset,
   log("Acquiring mutex lock, chunk_id: %"PRIu64", %"PRIu64"\n", chunk_id, page_offset);
   pthread_mutex_lock(&page_meta->lock);
 
-  char *base_ptr = g_dsm->g_base_ptr[chunk_id];
+  char *base_ptr = chunk_meta->g_base_ptr;
 
   if (!g_dsm->is_master) {
     log("I am not the master. Take the page I have.\n");

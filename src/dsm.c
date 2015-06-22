@@ -42,8 +42,9 @@ dhandle get_chunk_id_for_addr(char *saddr) {
   size_t chunk_size;
 
   for (i=0; i<NUM_CHUNKS; i++) {
-    base_ptr = g_dsm->g_base_ptr[i];
-    chunk_size = g_dsm->g_chunk_size[i];
+    dsm_chunk_meta *chunk_meta = &g_dsm->g_dsm_page_map[i];
+    base_ptr = chunk_meta->g_base_ptr;
+    chunk_size = chunk_meta->g_chunk_size;
     //log("base:%p sddar:%p end:%p\n", base_ptr, saddr, base_ptr+chunk_size);
     if (saddr >= base_ptr && saddr < base_ptr + chunk_size)
       return i; 
@@ -63,8 +64,9 @@ static void dsm_sigsegv_handler(int sig, siginfo_t *si, void *unused) {
   // may be just iterate through the list of g_dsm->g_base_ptr and using g_dsm->chunk_sizes
   // determine where si->si_addr falls into 
   int chunk_id = (dhandle)get_chunk_id_for_addr((char*)si->si_addr);
-  char *base_ptr = g_dsm->g_base_ptr[chunk_id];
-  size_t chunk_size = g_dsm->g_chunk_size[chunk_id];
+  dsm_chunk_meta *chunk_meta = &g_dsm->g_dsm_page_map[chunk_id];
+  char *base_ptr = chunk_meta->g_base_ptr;
+  size_t chunk_size = chunk_meta->g_chunk_size;
   log("\nhost:port=%s:%d Got SIGSEGV at address: 0x%lx\n",
       g_dsm->host, g_dsm->port, (long) si->si_addr);
 
@@ -78,7 +80,6 @@ static void dsm_sigsegv_handler(int sig, siginfo_t *si, void *unused) {
   // Build page offset
   dhandle page_offset = (dhandle)get_page_offset((char *)(si->si_addr), base_ptr);
   char *page_start_addr = base_ptr + PAGESIZE*page_offset;
-  dsm_chunk_meta *chunk_meta = &g_dsm->g_dsm_page_map[chunk_id];
 
   // NONE to READ (read-only) to WRITE (read write) transition
   if (chunk_meta->pages[page_offset].page_prot == PROT_NONE) {
@@ -159,6 +160,8 @@ void *dsm_alloc(dsm *d, dhandle chunk_id, ssize_t size) {
     handle_error("sigaction");
   }
 
+  dsm_chunk_meta *chunk_meta = &d->g_dsm_page_map[chunk_id];
+  
   // get page size
   PAGESIZE = sysconf(_SC_PAGE_SIZE);
   if (PAGESIZE == -1)
@@ -166,15 +169,14 @@ void *dsm_alloc(dsm *d, dhandle chunk_id, ssize_t size) {
   debug("---------- PAGESIZE: %d\n", PAGESIZE);
 
   // allocate chunk memory
-  void *buffer = d->g_base_ptr[chunk_id] = memalign(PAGESIZE, size);
+  void *buffer = chunk_meta->g_base_ptr = memalign(PAGESIZE, size);
   if (buffer == NULL)
     handle_error("memalign\n");
   memset(buffer, 0, size);
 
   // initialize chunk related data structures
   uint32_t num_pages = 1 + size/PAGESIZE;
-  d->g_chunk_size[chunk_id] = size;
-  dsm_chunk_meta *chunk_meta = &d->g_dsm_page_map[chunk_id];
+  chunk_meta->g_chunk_size = size;
   
   if (!d->is_master) {
     // for master this is allocated in the internal function
@@ -294,7 +296,8 @@ int dsm_close(dsm *d) {
     sleep(2);
     loop = 0;
     for (int i = 0; i < NUM_CHUNKS; i++) {
-      if (g_dsm->g_chunk_size[i] != 0) {
+      dsm_chunk_meta *chunk_meta = &d->g_dsm_page_map[i];
+      if (chunk_meta->g_chunk_size != 0) {
         loop = 1;
         break;
       }

@@ -19,6 +19,8 @@ typedef struct dsm_chunk_meta_struct {
   uint32_t ref_counter;         // used to maintain how many clients are using the shared memory
   pthread_mutex_t lock;
   uint32_t clients_using[32];    // used to maintain the list of clients using this chunk
+  char *g_base_ptr;
+  size_t g_chunk_size;
   dsm_page_meta *pages;
 } dsm_chunk_meta;
 
@@ -51,11 +53,6 @@ typedef struct dsm_struct {
   // this is maintained by the master
   // for client this structure null
   dsm_chunk_meta g_dsm_page_map[NUM_CHUNKS];   // make this a hash later; key:value -> chunk_id:list of page meta objects
-
-  // initialize another structure to maintain the base_ptrs
-  // TODO: combine these two
-  char *g_base_ptr[NUM_CHUNKS];
-  size_t g_chunk_size[NUM_CHUNKS];
 
   // copy getpage contents into this buffer instead of 
   // directly copying to the fault address
