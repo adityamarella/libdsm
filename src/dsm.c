@@ -239,6 +239,9 @@ static void *dsm_daemon_start(void *ptr) {
 
 int dsm_barrier_all(dsm *d) {
   dsm_conf *c = &d->c;
+
+  log("Barrier all \n");
+
   dsm_request_barrier(&d->master);
   
   pthread_mutex_lock(&d->barrier_lock);
@@ -280,7 +283,7 @@ int dsm_init(dsm *d) {
     return -1;
   }
   
-  d->barrier_counter = 1;
+  d->barrier_counter = 0;
 
   // initialize the server if this is a master
   // in future we might need bidirectional communication
@@ -330,9 +333,14 @@ int dsm_close(dsm *d) {
 
   log("Master approved! Shutting down.\n");
   dsm_conf *c = &d->c;
-  d->s.terminated = 1;
   free(d->page_buffer);
-  pthread_kill(d->dsm_daemon, SIGTERM);
+  
+  dsm_request r;
+  memset(&r, 0, sizeof(dsm_request));
+  dsm_request_init(&r, d->host, d->port);
+  dsm_request_terminate(&r, d->host, d->port);
+  dsm_request_close(&r);
+
   pthread_join(d->dsm_daemon, NULL); /* Wait until thread is finished */
   pthread_cond_destroy(&d->barrier_cond);
   pthread_mutex_destroy(&d->barrier_lock);

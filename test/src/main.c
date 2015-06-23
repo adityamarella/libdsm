@@ -148,7 +148,7 @@ int test_dsm_client_n() {
   for (int i = 0; i < 1000; i++) {
     int page = random()%4;
     snprintf(buffer + PAGESIZE * page, PAGESIZE, "host: %s port: %d", d->host, d->port);
-    usleep(100000+random()%100000);
+    usleep(1000+random()%1000);
   }
 
   dsm_free(d, g_chunk_id);

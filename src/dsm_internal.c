@@ -405,10 +405,10 @@ int dsm_barrier_internal() {
       for (int i = 0; i < c->num_nodes; i++) {
         dsm_request_barrier(&g_dsm->clients[i]); 
       }
-      pthread_cond_signal(&g_dsm->barrier_cond);
     }
     log("Barrier count:%"PRIu64"\n", g_dsm->barrier_counter);
   } else {
+    log("Barrier count:%"PRIu64"\n", g_dsm->barrier_counter);
     pthread_cond_signal(&g_dsm->barrier_cond);
   }
   pthread_mutex_unlock(&g_dsm->barrier_lock);

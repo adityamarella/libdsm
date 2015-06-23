@@ -223,6 +223,28 @@ void handle_barrier(comm *c, dsm_barrier_args *args) {
  * @param sock the endpoint connected to the client
  * @param error the msg_type that hasn't been implemented
  */
+void handle_terminate(comm *c, dsm_terminate_args *args) {
+  UNUSED(args);
+  dsm_terminate_internal();
+
+  dsm_rep reply = make_reply(TERMINATE, .terminate_rep = {
+      .is_terminated = 1,
+  });
+
+  // Send reply
+  if(comm_send_data(c, &reply, dsm_rep_size(terminate)) < 0) {
+    print_err("Failed to send INVALIDATEPAGE reply.\n");
+  }
+}
+
+/**
+ * Not a traditional handler: should be called when a message doesn't have an
+ * implementation. Simply prints a note and sends an DSM_ENOTIMPL error reply
+ * to the client.
+ *
+ * @param sock the endpoint connected to the client
+ * @param error the msg_type that hasn't been implemented
+ */
 void handle_unimplemented(comm *c, dsm_msg_type msg_type) {
   printf("NOTE: Handler for '%s' is unimplemented.\n", strmsgtype(msg_type));
   handle_error(c, DSM_ENOTIMPL);
