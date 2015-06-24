@@ -321,7 +321,7 @@ int dsm_allocchunk_internal(dhandle chunk_id, size_t size,
     uint8_t *requestor_host, uint32_t requestor_port) {
   int ret = 0;
   uint32_t i;
-  uint32_t num_pages = 1 + size/PAGESIZE;
+  uint32_t num_pages = 1 + (size-1)/PAGESIZE;
   
   debug("Allocing chunk. Setting page map for chunk %"PRIu64", %zu, owner=%s, port=%d\n", 
       chunk_id, size, requestor_host, requestor_port);
@@ -402,25 +402,13 @@ int dsm_freechunk_internal(dhandle chunk_id,
 }
 
 int dsm_barrier_internal() {
-  dsm_conf *c = &g_dsm->c;
-  log("acquiring barrier lock\n");
   pthread_mutex_lock(&g_dsm->barrier_lock);
-  if (g_dsm->is_master) {
-    g_dsm->barrier_counter++;
-    if (g_dsm->barrier_counter >= (uint64_t)(c->num_nodes)) {
-      for (int i = 0; i < c->num_nodes; i++) {
-        if (c->master_idx != i)
-          dsm_request_barrier(&g_dsm->clients[i]); 
-      }
-      pthread_cond_signal(&g_dsm->barrier_cond);
-    }
-    log("Barrier count if: %"PRIu64"\n", g_dsm->barrier_counter);
-  } else {
-    log("Barrier count else: %"PRIu64"\n", g_dsm->barrier_counter);
+  g_dsm->barrier_counter++;
+  if (g_dsm->barrier_counter >= (uint64_t)(g_dsm->c.num_nodes)) {
     pthread_cond_signal(&g_dsm->barrier_cond);
   }
-  log("releasing barrier lock\n");
   pthread_mutex_unlock(&g_dsm->barrier_lock);
+  log("Barrier count:%"PRIu64"\n", g_dsm->barrier_counter);
   return 0;
 }
 

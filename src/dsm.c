@@ -175,7 +175,7 @@ void *dsm_alloc(dsm *d, dhandle chunk_id, ssize_t size) {
   memset(buffer, 0, size);
 
   // initialize chunk related data structures
-  uint32_t num_pages = 1 + size/PAGESIZE;
+  uint32_t num_pages = 1 + (size-1)/PAGESIZE;
   chunk_meta->g_chunk_size = size;
   
   if (!d->is_master) {
@@ -238,16 +238,21 @@ static void *dsm_daemon_start(void *ptr) {
 }
 
 int dsm_barrier_all(dsm *d) {
+  int i;
   dsm_conf *c = &d->c;
-  log("Barrier all \n");
+  for (i = 0; i < c->num_nodes; i++) {
+    if (i == c->this_node_idx) continue;
+    dsm_request_barrier(&d->clients[i]);
+  }
+
   pthread_mutex_lock(&d->barrier_lock);
-  dsm_request_barrier(d->master);
   while (d->barrier_counter < (uint64_t)c->num_nodes) {
-    log("waiting on condition\n");
     pthread_cond_wait(&d->barrier_cond, &d->barrier_lock);
-    log("woke up from cond wait\n");
   }
   pthread_mutex_unlock(&d->barrier_lock);
+  
+  // set it back to 1 and not 0
+  d->barrier_counter = 1;
   return 0;
 }
 
@@ -258,7 +263,7 @@ int dsm_init(dsm *d) {
   
   // reading configuration
   dsm_conf *c = &d->c;
-  if (dsm_conf_init(c, "dsm.conf") < 0) {
+  if (dsm_conf_init(c, "dsm.conf", (const char*)d->host, d->port) < 0) {
     print_err("Error parsing conf file\n");
     return -1;
   }
@@ -282,7 +287,7 @@ int dsm_init(dsm *d) {
     return -1;
   }
   
-  d->barrier_counter = 0;
+  d->barrier_counter = 1;
 
   // initialize the server if this is a master
   // in future we might need bidirectional communication
@@ -325,11 +330,7 @@ int dsm_close(dsm *d) {
   dsm_conf *c = &d->c;
   free(d->page_buffer);
   
-  dsm_request r;
-  memset(&r, 0, sizeof(dsm_request));
-  dsm_request_init(&r, d->host, d->port);
-  dsm_request_terminate(&r, d->host, d->port);
-  dsm_request_close(&r);
+  dsm_request_terminate(&d->clients[c->this_node_idx], d->host, d->port);
 
   pthread_join(d->dsm_daemon, NULL); /* Wait until thread is finished */
   pthread_cond_destroy(&d->barrier_cond);
