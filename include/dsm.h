@@ -46,7 +46,7 @@ typedef struct dsm_struct {
   //
   // clients will open connection to master 
   // this structure will be null for master
-  dsm_request master;
+  dsm_request *master;
 
   // master will open connections to clients
   // this structure will be null for clients

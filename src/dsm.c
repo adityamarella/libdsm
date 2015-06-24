@@ -100,7 +100,7 @@ static void dsm_sigsegv_handler(int sig, siginfo_t *si, void *unused) {
       //TODO: we have not yet decided on what to do if page is not found;
     }
   } else {
-    dsm_request *r = &g_dsm->master;
+    dsm_request *r = g_dsm->master;
     if (dsm_request_getpage(r, chunk_id, page_offset, 
           g_dsm->host, g_dsm->port, &g_dsm->page_buffer, flags) < 0) {
       //TODO: we have not yet decided on what to do if page is not found;
@@ -198,7 +198,7 @@ void *dsm_alloc(dsm *d, dhandle chunk_id, ssize_t size) {
   // When a request for a page comes from other nodes;
   //   master will get the chunk_meta, page_meta for the request and
   //   return the page
-  if ( (is_owner = dsm_request_allocchunk(&d->master, chunk_id, size, d->host, d->port)) < 0) {
+  if ( (is_owner = dsm_request_allocchunk(d->master, chunk_id, size, d->host, d->port)) < 0) {
     handle_error("allocchunk failed\n");
   }
   log("Allocchunk success. I am the owner?  %s.\n", 
@@ -221,7 +221,7 @@ void *dsm_alloc(dsm *d, dhandle chunk_id, ssize_t size) {
 
 void dsm_free(dsm *d, dhandle chunk_id) {
   UNUSED(d);
-  dsm_request_freechunk(&d->master, chunk_id, d->host, d->port);
+  dsm_request_freechunk(d->master, chunk_id, d->host, d->port);
 }
 
 static void *dsm_daemon_start(void *ptr) {
@@ -239,14 +239,13 @@ static void *dsm_daemon_start(void *ptr) {
 
 int dsm_barrier_all(dsm *d) {
   dsm_conf *c = &d->c;
-
   log("Barrier all \n");
-
-  dsm_request_barrier(&d->master);
-  
   pthread_mutex_lock(&d->barrier_lock);
+  dsm_request_barrier(d->master);
   while (d->barrier_counter < (uint64_t)c->num_nodes) {
+    log("waiting on condition\n");
     pthread_cond_wait(&d->barrier_cond, &d->barrier_lock);
+    log("woke up from cond wait\n");
   }
   pthread_mutex_unlock(&d->barrier_lock);
   return 0;
@@ -293,22 +292,13 @@ int dsm_init(dsm *d) {
     return -1;
   }
 
-  if (d->is_master) {
-    d->clients = (dsm_request*)calloc(c->num_nodes, sizeof(dsm_request));
-    for (int i = 0; i < c->num_nodes; i++) {
-      debug("dsm_request_init for host:port=%s:%d\n",
-            c->hosts[i], c->ports[i]);
-      dsm_request_init(&d->clients[i], c->hosts[i], c->ports[i]);
-    }
+  d->clients = (dsm_request*)calloc(c->num_nodes, sizeof(dsm_request));
+  for (int i = 0; i < c->num_nodes; i++) {
+    debug("dsm_request_init for host:port=%s:%d\n",
+          c->hosts[i], c->ports[i]);
+    dsm_request_init(&d->clients[i], c->hosts[i], c->ports[i]);
   }
-  
-  // initialize the requestor
-  // establish connection to the master node 
-  dsm_request *r = &d->master;
-  memset(r, 0, sizeof(dsm_request));
-  debug("dsm_request_init for host:port=%s:%d\n",
-        c->hosts[c->master_idx], c->ports[c->master_idx]);
-  dsm_request_init(r, c->hosts[c->master_idx], c->ports[c->master_idx]);
+  d->master = &d->clients[c->master_idx];
   
   return 0;
 }
@@ -344,13 +334,10 @@ int dsm_close(dsm *d) {
   pthread_join(d->dsm_daemon, NULL); /* Wait until thread is finished */
   pthread_cond_destroy(&d->barrier_cond);
   pthread_mutex_destroy(&d->barrier_lock);
-  if(d->is_master) {
-    for (int i = 0; i < c->num_nodes; i++)
-      dsm_request_close(&d->clients[i]);
-    free(d->clients);
-  } else {
-    dsm_request_close(&d->master);
-  }
+  
+  for (int i = 0; i < c->num_nodes; i++)
+    dsm_request_close(&d->clients[i]);
+  free(d->clients);
   dsm_conf_close(c);
   return 0;
 }

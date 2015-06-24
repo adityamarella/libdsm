@@ -151,9 +151,9 @@ int test_dsm_client_n() {
     usleep(1000+random()%1000);
   }
 
+  dsm_barrier_all(d);
   dsm_free(d, g_chunk_id);
 
-  dsm_barrier_all(d);
 cleanup:
   dsm_close(d);
   free(d); 

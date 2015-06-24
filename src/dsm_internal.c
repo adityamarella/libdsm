@@ -40,9 +40,6 @@ int is_same_node(const uint8_t *host1, uint32_t port1,
 
 inline static
 dsm_request* get_request_object(dsm *d, const uint8_t *host, uint32_t port) {
-  if (0 == is_same_node(d->master.host, d->master.port, host, port))
-    return &d->master;
-
   dsm_request *clients = d->clients;
   for (int i = 0; i < d->c.num_nodes; i++) {
     if (0 == is_same_node(clients[i].host, clients[i].port, host, port))
@@ -84,10 +81,18 @@ static int dsm_really_freechunk(dhandle chunk_id) {
   chunk_meta->g_chunk_size = 0;
   chunk_meta->count = 0;
   free(chunk_meta->pages);
-  
+ 
   if (pthread_mutex_destroy(&chunk_meta->lock) != 0) {
     print_err("mutex destroy failed, error=%s\n", strerror(errno));
-    return -1;
+    if (errno == EBUSY) {
+      pthread_mutex_unlock(&chunk_meta->lock);
+      if (pthread_mutex_destroy(&chunk_meta->lock) != 0) {
+        print_err("mutex destroy failed1, error=%s\n", strerror(errno));
+        return -1;
+      }
+    } else {
+      return -1;
+    }
   }
   return 0;
 }
@@ -102,7 +107,7 @@ static int fetch_remotely_owned_pages(dhandle chunk_id,
   dsm_chunk_meta *chunk_meta = &g_dsm->g_dsm_page_map[chunk_id];
   dsm_request *requestor = get_request_object(g_dsm, requestor_host, requestor_port);
   dhandle page_offset = 0;
-  if (requestor == &g_dsm->master)
+  if (requestor == g_dsm->master)
     return 0;
 
   for (page_offset = 0; page_offset < chunk_meta->count; page_offset++) {
@@ -398,19 +403,23 @@ int dsm_freechunk_internal(dhandle chunk_id,
 
 int dsm_barrier_internal() {
   dsm_conf *c = &g_dsm->c;
+  log("acquiring barrier lock\n");
   pthread_mutex_lock(&g_dsm->barrier_lock);
-  if (g_dsm->is_master && g_dsm->barrier_counter < (uint64_t)(g_dsm->c.num_nodes)) {
+  if (g_dsm->is_master) {
     g_dsm->barrier_counter++;
-    if (g_dsm->barrier_counter >= (uint64_t)(g_dsm->c.num_nodes)) {
+    if (g_dsm->barrier_counter >= (uint64_t)(c->num_nodes)) {
       for (int i = 0; i < c->num_nodes; i++) {
-        dsm_request_barrier(&g_dsm->clients[i]); 
+        if (c->master_idx != i)
+          dsm_request_barrier(&g_dsm->clients[i]); 
       }
+      pthread_cond_signal(&g_dsm->barrier_cond);
     }
-    log("Barrier count:%"PRIu64"\n", g_dsm->barrier_counter);
+    log("Barrier count if: %"PRIu64"\n", g_dsm->barrier_counter);
   } else {
-    log("Barrier count:%"PRIu64"\n", g_dsm->barrier_counter);
+    log("Barrier count else: %"PRIu64"\n", g_dsm->barrier_counter);
     pthread_cond_signal(&g_dsm->barrier_cond);
   }
+  log("releasing barrier lock\n");
   pthread_mutex_unlock(&g_dsm->barrier_lock);
   return 0;
 }
