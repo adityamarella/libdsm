@@ -17,7 +17,6 @@ int comm_shutdown(comm *c);
 
 int comm_send_data(comm *c, void *data, size_t size);
 void* comm_receive_data(comm *c, ssize_t *size);
-void* _comm_receive_data(comm *c, ssize_t *size, int flags);
 
 void comm_free(comm *c, void *p);
 

@@ -71,7 +71,7 @@ int dsm_server_start(dsm_server *s) {
   dsm_req *req = NULL;
   while (!s->terminated) {
     ssize_t bytes = 0;
-    req = _comm_receive_data(&c, &bytes, 0);
+    req = comm_receive_data(&c, &bytes);
     if (req == NULL) {
       debug("Received NULL\n");
       continue;
