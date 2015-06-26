@@ -57,6 +57,16 @@ dhandle get_chunk_id_for_addr(char *saddr) {
   return -1;
 }
 
+static 
+void *dsm_daemon_start(void *ptr) {
+  dsm *d = (dsm*)ptr;
+  log("Starting server on port %d\n", d->port);
+  dsm_server *s = &d->s;
+  dsm_server_init(s, "localhost", d->port);
+  dsm_server_start(s);
+  return 0;
+}
+
 /**
  * The main signal handler for this application. Handles SIGSEGV on registered addresses
  * Everything in this function should be re-entrant. Printfs is not allowed; so do not add logs in this function. 
@@ -68,6 +78,9 @@ dhandle get_chunk_id_for_addr(char *saddr) {
  */
 static 
 void dsm_sigsegv_handler(int sig, siginfo_t *si, void *unused) {
+  UNUSED(sig);
+  UNUSED(si);
+  UNUSED(unused);
   int write_fault = 0;
   uint32_t flags = 0;
 
@@ -82,7 +95,7 @@ void dsm_sigsegv_handler(int sig, siginfo_t *si, void *unused) {
   // safety check; probably not necessary
   if ((char*)si->si_addr < base_ptr || 
       (char*)si->si_addr >= base_ptr + chunk_size) {
-    log("Fault out of chunk. address: 0x%lx chunk_id: %d base_ptr: %p base_end: %p\n",
+    log("Fault out of chunk. address: 0x%lx chunk_id: %"PRIu64" base_ptr: %p base_end: %p\n",
         (long) si->si_addr, chunk_id, base_ptr, base_ptr + chunk_size);
     return;
   }
@@ -233,15 +246,6 @@ void dsm_free(dsm *d, dhandle chunk_id) {
   dsm_request_freechunk(d->master, chunk_id, d->host, d->port);
 }
 
-static void *dsm_daemon_start(void *ptr) {
-  dsm *d = (dsm*)ptr;
-  log("Starting server on port %d\n", d->port);
-  dsm_server *s = &d->s;
-  dsm_server_init(s, "localhost", d->port);
-  dsm_server_start(s);
-  return 0;
-}
-
 int dsm_barrier_all(dsm *d) {
   int i;
   dsm_conf *c = &d->c;
@@ -264,7 +268,12 @@ int dsm_barrier_all(dsm *d) {
   return 0;
 }
 
-int dsm_init(dsm *d) {
+int dsm_init(dsm *d, const char* host, uint32_t port, int is_master) {
+  // initialize dsm structure
+  strncpy((char*)d->host, host, sizeof(d->host));
+  d->port = port;
+  d->is_master = is_master;
+
   // catch SIGTERM to clean up
   struct sigaction act;
   memset(&act, 0, sizeof(struct sigaction));
@@ -284,7 +293,7 @@ int dsm_init(dsm *d) {
 
   // allocate page buffer
   // this will be used to store getpage responses
-  d->page_buffer = (uint8_t*) calloc(PAGESIZE, sizeof(uint8_t));
+  d->page_buffer = (uint8_t*)calloc(PAGESIZE, sizeof(uint8_t));
 
   // initialize barrier variables 
   d->barrier_counter = 1;

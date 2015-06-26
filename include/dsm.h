@@ -18,7 +18,7 @@ typedef struct dsm_chunk_meta_struct {
   uint32_t count;               // count of pages in this chunk
   uint32_t ref_counter;         // used to maintain how many clients are using the shared memory
   pthread_mutex_t lock;
-  uint32_t clients_using[32];    // used to maintain the list of clients using this chunk
+  uint32_t clients_using[64];    // used to maintain the list of clients using this chunk
   char *g_base_ptr;
   size_t g_chunk_size;
   dsm_page_meta *pages;
@@ -72,9 +72,12 @@ typedef struct dsm_struct {
  * Creates a background (dsm_daemon) thread which listens for requests from other nodes. 
  *
  * @param d dsm object
+ * @param host name of this node
+ * @param port on which this node listens
+ * @param is_master whether this node is the master
  * @return 0 if init succeeds; negative value incase of error
  */
-int dsm_init(dsm *d);
+int dsm_init(dsm *d, const char *host, uint32_t port, int is_master);
 
 /**
  * Closes the system. Frees any memory on the heap. 

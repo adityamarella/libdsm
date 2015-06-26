@@ -40,8 +40,7 @@ typedef enum packed dsm_error_enum {
 } dsm_error;
 
 #define HOST_NAME 128
-#define MAP_SIZE (1024*1024)
-#define NUM_CHUNKS 32
+#define NUM_CHUNKS 64
 
 struct dsm_map {
   uint64_t offset;

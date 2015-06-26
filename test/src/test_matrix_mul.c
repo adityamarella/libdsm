@@ -1,18 +1,20 @@
 #include <stdio.h>
 #include <stdlib.h>
-//#include "utils.h"
-//#include "dsm.h"
+#include <string.h>
+#include "utils.h"
+#include "dsm.h"
 
+#if 0
 typedef int dsm;
 #define dsm_alloc(a, b, c) malloc(c)
 #define dsm_free(a, b) do {int __a=0;}while(0)
 #define dsm_init(a) do {int __a=0;}while(0)
 #define dsm_close(a) do {int __a=0;}while(0)
+#endif
 
 void print_matrix(double **m, int row, int col)
 {
   int i, j;
-
   printf("row:%d col:%d\n\n", row, col);
   for (i = 0; i < row; i++) {
     for (j = 0; j < col; j++) {
@@ -66,7 +68,7 @@ double** multiply_partition(double **A, double **B, int m, int n, int p, int pb,
   return C;
 }
 
-int test_matrix_mul(int nnodes) {
+int test_matrix_mul(const char* host, int port, int nnodes, int is_master) {
   double **A, **B, **C;
   int i, j, m, n, p, psz, pb;
   int *g_node_id, node_id;
@@ -76,7 +78,8 @@ int test_matrix_mul(int nnodes) {
   m = n = p = 3;
 
   d = (dsm*)malloc(sizeof(dsm));
-  dsm_init(d);
+  memset(d, 0, sizeof(dsm));
+  dsm_init(d, host, port, is_master);
 
   g_node_id = (int*)dsm_alloc(d, cid++, sizeof(int));
 
@@ -129,9 +132,13 @@ int test_matrix_mul(int nnodes) {
     dsm_free(d, i);
   dsm_close(d);
   free(d);
+  return 0;
 }
 
+#if 0
 int main() {
-  test_matrix_mul(1, 1);
+  test_matrix_mul("localhost", 8000, 1, 1);
+  return 0;
 }
+#endif
 
