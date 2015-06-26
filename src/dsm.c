@@ -29,12 +29,18 @@ dsm *g_dsm;
  *
  * @param sig the signal received
  */
-static void sigterm_handler(int sig) {
+static 
+void sigterm_handler(int sig) {
   UNUSED(sig);
   log("Got sigterm. Terminating server.\n");
   g_dsm->s.terminated = 1;
 }
 
+/**
+ * Utility function which returns the chunk to which the addr belongs
+ *
+ * @param saddr addr from the signal
+ */
 static 
 dhandle get_chunk_id_for_addr(char *saddr) {
   dhandle i;
@@ -45,25 +51,28 @@ dhandle get_chunk_id_for_addr(char *saddr) {
     dsm_chunk_meta *chunk_meta = &g_dsm->g_dsm_page_map[i];
     base_ptr = chunk_meta->g_base_ptr;
     chunk_size = chunk_meta->g_chunk_size;
-    //log("base:%p sddar:%p end:%p\n", base_ptr, saddr, base_ptr+chunk_size);
     if (saddr >= base_ptr && saddr < base_ptr + chunk_size)
       return i; 
   }
   return -1;
 }
 
-static void dsm_sigsegv_handler(int sig, siginfo_t *si, void *unused) {
-  UNUSED(sig);
-  UNUSED(unused);
-
+/**
+ * The main signal handler for this application. Handles SIGSEGV on registered addresses
+ * Everything in this function should be re-entrant. Printfs is not allowed; so do not add logs in this function. 
+ * Refer to the signal man page to get the list of functions allowed in this function. 
+ *
+ * @param sig refer to the signal man page
+ * @param si refer to the signal man page
+ * @param *unused refer to the signal man page
+ */
+static 
+void dsm_sigsegv_handler(int sig, siginfo_t *si, void *unused) {
   int write_fault = 0;
   uint32_t flags = 0;
 
-  // TODO remove this hack
-  // get chunk_id from si->si_addr
-  // may be just iterate through the list of g_dsm->g_base_ptr and using g_dsm->chunk_sizes
-  // determine where si->si_addr falls into 
-  int chunk_id = (dhandle)get_chunk_id_for_addr((char*)si->si_addr);
+  // get the chunk meta for this addr
+  dhandle chunk_id = get_chunk_id_for_addr((char*)si->si_addr);
   dsm_chunk_meta *chunk_meta = &g_dsm->g_dsm_page_map[chunk_id];
   char *base_ptr = chunk_meta->g_base_ptr;
   size_t chunk_size = chunk_meta->g_chunk_size;
@@ -77,6 +86,7 @@ static void dsm_sigsegv_handler(int sig, siginfo_t *si, void *unused) {
         (long) si->si_addr, chunk_id, base_ptr, base_ptr + chunk_size);
     return;
   }
+
   // Build page offset
   dhandle page_offset = (dhandle)get_page_offset((char *)(si->si_addr), base_ptr);
   char *page_start_addr = base_ptr + PAGESIZE*page_offset;
@@ -220,31 +230,29 @@ void *dsm_alloc(dsm *d, dhandle chunk_id, ssize_t size) {
 }
 
 void dsm_free(dsm *d, dhandle chunk_id) {
-  UNUSED(d);
   dsm_request_freechunk(d->master, chunk_id, d->host, d->port);
 }
 
 static void *dsm_daemon_start(void *ptr) {
   dsm *d = (dsm*)ptr;
   log("Starting server on port %d\n", d->port);
-  
   dsm_server *s = &d->s;
   dsm_server_init(s, "localhost", d->port);
   dsm_server_start(s);
-#if 0
-  dsm_server_close(s);
-#endif
   return 0;
 }
 
 int dsm_barrier_all(dsm *d) {
   int i;
   dsm_conf *c = &d->c;
+  
+  // send barrier request to all other nodes
   for (i = 0; i < c->num_nodes; i++) {
     if (i == c->this_node_idx) continue;
     dsm_request_barrier(&d->clients[i]);
   }
 
+  // wait until all nodes hit the barrier
   pthread_mutex_lock(&d->barrier_lock);
   while (d->barrier_counter < (uint64_t)c->num_nodes) {
     pthread_cond_wait(&d->barrier_cond, &d->barrier_lock);
@@ -257,6 +265,12 @@ int dsm_barrier_all(dsm *d) {
 }
 
 int dsm_init(dsm *d) {
+  // catch SIGTERM to clean up
+  struct sigaction act;
+  memset(&act, 0, sizeof(struct sigaction));
+  act.sa_handler = sigterm_handler;
+  sigaction(SIGTERM, &act, NULL);
+
   // storing the dsm structure in the global ctxt
   // to be accessible in the signal handler function
   g_dsm = d;
@@ -268,15 +282,12 @@ int dsm_init(dsm *d) {
     return -1;
   }
 
+  // allocate page buffer
+  // this will be used to store getpage responses
   d->page_buffer = (uint8_t*) calloc(PAGESIZE, sizeof(uint8_t));
-  
-  // catch SIGTERM to clean up
-  struct sigaction act;
-  memset(&act, 0, sizeof(struct sigaction));
-  act.sa_handler = sigterm_handler;
-  sigaction(SIGTERM, &act, NULL);
 
-
+  // initialize barrier variables 
+  d->barrier_counter = 1;
   if (pthread_mutex_init(&d->barrier_lock, NULL) != 0) {
     print_err("barrier mutex init failed\n");
     return -1;
@@ -286,25 +297,19 @@ int dsm_init(dsm *d) {
     print_err("barrier cond init failed\n");
     return -1;
   }
-  
-  d->barrier_counter = 1;
 
-  // initialize the server if this is a master
-  // in future we might need bidirectional communication
-  // for now this is req resp 
+  // initialize background thread
   if (pthread_create(&d->dsm_daemon, NULL, &dsm_daemon_start, (void *)d) != 0) {
     print_err("Thread not created! %d\n", -errno);
     return -1;
   }
 
+  // open connections to other nodes
   d->clients = (dsm_request*)calloc(c->num_nodes, sizeof(dsm_request));
   for (int i = 0; i < c->num_nodes; i++) {
-    debug("dsm_request_init for host:port=%s:%d\n",
-          c->hosts[i], c->ports[i]);
     dsm_request_init(&d->clients[i], c->hosts[i], c->ports[i]);
   }
   d->master = &d->clients[c->master_idx];
-  
   return 0;
 }
     
@@ -312,6 +317,7 @@ int dsm_close(dsm *d) {
   log("Closing node %s:%d\n", d->host, d->port);
   // wait for master to give green signal
   // master has to complete page copying
+  // TODO use conditional wait rather than doing this stupidity
   int loop = 1;
   do {
     sleep(2);

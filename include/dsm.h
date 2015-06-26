@@ -25,13 +25,20 @@ typedef struct dsm_chunk_meta_struct {
 } dsm_chunk_meta;
 
 typedef struct dsm_struct {
+
+  // indicates whether this node is master or not
   uint8_t is_master;
-  uint8_t host[HOST_NAME];                   // master host name
-  uint32_t port;                             // port on which master is listening
+  
+  // host name of this node
+  uint8_t host[HOST_NAME]; 
+  
+  // port on which this node is listening
+  uint32_t port; 
   
   //private variables; user will not initialize these variables
   dsm_conf c;
-  
+ 
+  // background thread to receive requests from other nodes
   pthread_t dsm_daemon;
 
   // cond variable for barrier
@@ -39,17 +46,10 @@ typedef struct dsm_struct {
   pthread_mutex_t barrier_lock;
   volatile uint64_t barrier_counter;
 
-  // TODO Make this cleaner. 
-  // num_nodes can be accessed from dsm_conf object;
-  // dsm_request *clients is initialized here but
-  // number of clients is taken from dsm_conf.
-  //
-  // clients will open connection to master 
-  // this structure will be null for master
+  // this points to the client at master_idx
   dsm_request *master;
 
-  // master will open connections to clients
-  // this structure will be null for clients
+  // all clients open connections to all other clients
   dsm_request *clients;
 
   // handle to listener server on this node
@@ -57,8 +57,10 @@ typedef struct dsm_struct {
 
   // this is maintained by the master
   // for client this structure null
-  dsm_chunk_meta g_dsm_page_map[NUM_CHUNKS];   // make this a hash later; key:value -> chunk_id:list of page meta objects
+  // TODO make this a hash later; key:value -> chunk_id:list of page meta objects
+  dsm_chunk_meta g_dsm_page_map[NUM_CHUNKS];   
 
+  // TODO remove this
   // copy getpage contents into this buffer instead of 
   // directly copying to the fault address
   uint8_t *page_buffer;
@@ -89,6 +91,7 @@ int dsm_close(dsm *d);
  * User is expected to pass a chunk_id, which 
  * will be used to identify shared memory across nodes.
  *
+ * @param d dsm object
  * @param chunk_id integer identifying the shared memory chunk
  * @size size of chunk; chunk size could be different
  *       on different nodes for the same chunk id.
@@ -100,10 +103,16 @@ void* dsm_alloc(dsm *d, dhandle chunk_id, ssize_t size);
 /**
  * Frees the shared memory chunk.
  *
+ * @param d dsm object
  * @param chunk id integer identifying the shared memory chunk
  */
 void dsm_free(dsm *d, dhandle chunk_id);
 
+/**
+ * Barrier could be used by application to synchronize control flow.
+ *
+ * @param d dsm object
+ */
 int dsm_barrier_all(dsm *d);
 
 #define UNUSED(var) (void)(var)
