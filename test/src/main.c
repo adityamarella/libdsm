@@ -145,10 +145,10 @@ int test_dsm_client_n() {
 
   srand ( time(NULL) );
 
-  for (int i = 0; i < 1000; i++) {
+  for (int i = 0; i < 60; i++) {
     int page = random()%4;
     snprintf(buffer + PAGESIZE * page, PAGESIZE, "host: %s port: %d", d->host, d->port);
-    usleep(1000+random()%1000);
+    usleep(1000000+random()%100000);
   }
 
   dsm_barrier_all(d);
@@ -889,6 +889,8 @@ cleanup:
 }
 
 #endif
+
+extern int test_matrix_mul(int nnodes);
 
 int main(int argc, char *argv[]) {
   int i;

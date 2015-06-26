@@ -4,13 +4,34 @@
 //#include "dsm.h"
 
 typedef int dsm;
-#define dsm_alloc(a,b,c) malloc(c)
-#define dsm_free(a,b) free(b)
+#define dsm_alloc(a, b, c) malloc(c)
+#define dsm_free(a, b) do {int __a=0;}while(0)
 #define dsm_init(a) do {int __a=0;}while(0)
 #define dsm_close(a) do {int __a=0;}while(0)
 
-int read_matrices(char *filepath, double **A, double **B, int *m, int *n, int *p) {
+void print_matrix(double **m, int row, int col)
+{
+  int i, j;
 
+  printf("row:%d col:%d\n\n", row, col);
+  for (i = 0; i < row; i++) {
+    for (j = 0; j < col; j++) {
+      printf("%f ", m[i][j]);
+    }
+    printf("\n");
+  }
+  printf("\n");
+}
+
+void generate_matrix(double **m, int row, int col)
+{
+  int i, j;
+  srandom(time(NULL));
+  for (i = 0; i < row; i++) {
+    for (j = 0; j < col; j++) {
+      m[i][j] = random() % 10;
+    }
+  }
 }
 
 /**
@@ -38,52 +59,54 @@ double** multiply_partition(double **A, double **B, int m, int n, int p, int pb,
   for (i = pb; i < pb + psz && i < m; i++) {
     for (j = 0; j < p; j++) {
       for(k = 0; k < n; k++) {
-        C[i - pb][j] += A[i][k] + B[k][j];
+        C[i - pb][j] += A[i][k] * B[k][j];
       }
     }
   }
   return C;
 }
 
-int test_matrix_mul(int nnodes, int is_master) {
+int test_matrix_mul(int nnodes) {
   double **A, **B, **C;
-  int m, n, p;
+  int i, j, m, n, p, psz, pb;
   int *g_node_id, node_id;
   int cid = 0;
   dsm *d;
- 
+
+  m = n = p = 3;
+
   d = (dsm*)malloc(sizeof(dsm));
   dsm_init(d);
 
-  *g_node_id = (int*)dsm_alloc(d, cid++, sizeof(int));
+  g_node_id = (int*)dsm_alloc(d, cid++, sizeof(int));
 
   // dsm_alloc always returns zeroed out memory
-  // this innocuous looking line of code will ensure that each node
+  // this innocuous looking statement will ensure that each node
   // has a different node id;
   *g_node_id = *g_node_id + 1;
-  node_id = *g_node_id;
+  node_id = *g_node_id - 1;
 
   printf("node id : %d\n", node_id);
- 
+
+  // allocate shared memory 
   A = (double**)dsm_alloc(d, cid++, m*sizeof(double*));
   B = (double**)dsm_alloc(d, cid++, n*sizeof(double*));
   C = (double**)dsm_alloc(d, cid++, m*sizeof(double*));
-
   for (i = 0; i < m; i++) {
     A[i] = (double*)dsm_alloc(d, cid++, n*sizeof(double));
     C[i] = (double*)dsm_alloc(d, cid++, p*sizeof(double));
   }
-  
   for (i = 0; i < n; i++)
     B[i] = (double*)dsm_alloc(d, cid++, p*sizeof(double));
 
+  // initialize input matrices
   if (node_id == 0) {
-    FILE *fp = fopen(filepath, "r");
-    fscanf(fp, "%d%d%d", &m, &n, &p);
-    fclose(fp);
+    generate_matrix(A, m, n);
+    generate_matrix(B, n, p);
   }
 
-  psz = (m + nnodes - 1) / nnodes;
+  // multiply the assigned partition
+  psz = 1 + (m - 1) / nnodes;
   pb = node_id * psz;
   double **result = multiply_partition(A, B, m, n, p, pb, psz);
 
@@ -91,6 +114,10 @@ int test_matrix_mul(int nnodes, int is_master) {
   for (i = pb; i < pb + psz && i < m; i++)
     for (j = 0; j < p; j++)
       C[i][j] = result[i-pb][j];
+
+  print_matrix(A, m, n);
+  print_matrix(B, n, p);
+  print_matrix(C, m, p);
 
   // free local memory
   for (i = 0; i < m; i++)
