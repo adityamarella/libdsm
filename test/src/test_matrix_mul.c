@@ -134,11 +134,3 @@ int test_matrix_mul(const char* host, int port, int nnodes, int is_master) {
   free(d);
   return 0;
 }
-
-#if 0
-int main() {
-  test_matrix_mul("localhost", 8000, 1, 1);
-  return 0;
-}
-#endif
-
