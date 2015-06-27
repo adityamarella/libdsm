@@ -3,7 +3,7 @@
 #include <string.h>
 #include <inttypes.h>
 
-#include "dsm_conf.h"
+#include "conf.h"
 
 int dsm_conf_init(dsm_conf *c, const char *conf_file_path, const char *host, uint32_t port) {
 

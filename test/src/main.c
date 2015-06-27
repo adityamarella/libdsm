@@ -87,7 +87,14 @@ int main(int argc, char *argv[]) {
       usage_msg_exit("%s: wrong arguments\n", PROG_NAME);
   }
 
-  test_matrix_mul(OPTIONS.host, OPTIONS.port, 2, OPTIONS.is_master);
+  dsm_conf c;
+  if (dsm_conf_init(&c, "dsm.conf", OPTIONS.host, OPTIONS.port) < 0) {
+    print_err("Error parsing conf file\n");
+    return -1;
+  }
 
+  test_matrix_mul(OPTIONS.host, OPTIONS.port, c.num_nodes, OPTIONS.is_master);
+
+  dsm_conf_close(&c);
   return 0; 
 }

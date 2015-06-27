@@ -2,9 +2,9 @@
 #define __DSM_H_
 
 #include "dsmtypes.h"
-#include "dsm_conf.h"
+#include "conf.h"
 #include "request.h"
-#include "dsm_server.h"
+#include "server.h"
 
 typedef struct dsm_page_meta_struct {
   dhandle chunk_id;                // chunk_id; this is maintained by the user
