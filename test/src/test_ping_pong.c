@@ -12,14 +12,14 @@
 #include "reply_handler.h"
 #include "dsm_server.h"
 
-int test_dsm_master(void) {
-  int host_len = strlen(OPTIONS.host);
+int test_dsm_master(const char *host, int port, int num_nodes, int is_master) {
+  int host_len = strlen(host);
   dsm *d = (dsm*)malloc(sizeof(dsm));
 
   memset(d, 0, sizeof(dsm)); // Needed for initial state to be 0
-  d->port = OPTIONS.port;
-  d->is_master = OPTIONS.is_master;
-  memcpy(d->host, OPTIONS.host, 1+host_len);
+  d->port = port;
+  d->is_master = is_master;
+  memcpy(d->host, host, 1+host_len);
 
   if (dsm_init(d) < 0)
     return 0;
@@ -47,14 +47,14 @@ cleanup:
   return 0;
 }
 
-int test_dsm_client_n() {
-  int host_len = strlen(OPTIONS.host);
+int test_dsm_client_n(const char *host, int port, int num_nodes, int is_master) {
+  int host_len = strlen(host);
   dsm *d = (dsm*)malloc(sizeof(dsm));
 
   memset(d, 0, sizeof(dsm)); // Needed for initial state to be 0
-  d->port = OPTIONS.port;
-  d->is_master = OPTIONS.is_master;
-  memcpy(d->host, OPTIONS.host, 1+host_len);
+  d->port = port;
+  d->is_master = is_master;
+  memcpy(d->host, host, 1+host_len);
   
   if (dsm_init(d) < 0)
     return 0;
