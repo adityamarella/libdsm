@@ -1,5 +1,7 @@
 /* This code is taken from mprotect man page */
+#define _GNU_SOURCE
 
+#include <ucontext.h>
 #include <unistd.h>
 #include <signal.h>
 #include <stdio.h>
@@ -7,7 +9,11 @@
 #include <stdlib.h>
 #include <errno.h>
 #include <sys/mman.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 
+
+//#define GEN_WRITE_FAULT
 
 #define handle_error(msg) \
     do { perror(msg); exit(EXIT_FAILURE); } while (0)
@@ -15,10 +21,17 @@
 char *buffer;
 
 static void
-handler(int sig, siginfo_t *si, void *unused)
+handler(int sig, siginfo_t *si, ucontext_t *ctxt)
 {
     printf("Got SIGSEGV at address: 0x%lx\n",
             (long) si->si_addr);
+
+    if (ctxt->uc_mcontext.gregs[REG_ERR] & 0x2) {
+      printf("Write fault\n");
+    } else {
+      printf("Read Fault\n");
+    }
+
     exit(EXIT_FAILURE);
 }
 
@@ -48,12 +61,15 @@ main(int argc, char *argv[])
 
     printf("Start of region:        0x%lx\n", (long) buffer);
 
-    if (mprotect(buffer + pagesize * 2, pagesize,
-                PROT_READ) == -1)
+    if (mprotect(buffer, pagesize,
+                PROT_NONE) == -1)
         handle_error("mprotect");
 
-    for (p = buffer ; ; )
-        *(p++) = 'a';
+#ifdef GEN_WRITE_FAULT
+    *buffer = 'a';
+#else
+    printf("%s\n", (char*)buffer);
+#endif
 
     printf("Loop completed\n");     /* Should never happen */
     exit(EXIT_SUCCESS);
