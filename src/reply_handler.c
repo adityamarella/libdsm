@@ -164,7 +164,6 @@ void handle_getpage(comm *c, dsm_getpage_args *args) {
     handle_error(c, DSM_ENOPAGE);
     goto cleanup_reply;
   }
-
   reply->type = GETPAGE;
   reply->content.getpage_rep.count = count;
   

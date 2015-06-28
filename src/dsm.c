@@ -1,3 +1,6 @@
+#define _GNU_SOURCE
+
+#include <ucontext.h>
 #include <unistd.h>
 #include <signal.h>
 #include <stdio.h>
@@ -68,8 +71,14 @@ void *dsm_daemon_start(void *ptr) {
 }
 
 /**
- * The main signal handler for this application. Handles SIGSEGV on registered addresses
- * Everything in this function should be re-entrant. Printfs is not allowed; so do not add logs in this function. 
+ * The main signal handler for this application. Handles SIGSEGV on registered addresses.
+ * Everything in this function should be re-entrant and asynchronous. Curiously, 
+ * even printfs are not allowed; so do not add logs in this function. 
+ * 
+ * TODO remove log statements from this function
+ *
+ * TODO remove synchronous getpage calls
+ *
  * Refer to the signal man page to get the list of functions allowed in this function. 
  *
  * @param sig refer to the signal man page
@@ -77,10 +86,10 @@ void *dsm_daemon_start(void *ptr) {
  * @param *unused refer to the signal man page
  */
 static 
-void dsm_sigsegv_handler(int sig, siginfo_t *si, void *unused) {
+void dsm_sigsegv_handler(int sig, siginfo_t *si, void *ctxt) {
   UNUSED(sig);
   UNUSED(si);
-  UNUSED(unused);
+  UNUSED(ctxt);
   int write_fault = 0;
   uint32_t flags = 0;
 
@@ -89,10 +98,9 @@ void dsm_sigsegv_handler(int sig, siginfo_t *si, void *unused) {
   dsm_chunk_meta *chunk_meta = &g_dsm->g_dsm_page_map[chunk_id];
   char *base_ptr = chunk_meta->g_base_ptr;
   size_t chunk_size = chunk_meta->g_chunk_size;
-  log("\nhost:port=%s:%d Got SIGSEGV at address: 0x%lx\n",
-      g_dsm->host, g_dsm->port, (long) si->si_addr);
 
   // safety check; probably not necessary
+  // TODO remove this later
   if ((char*)si->si_addr < base_ptr || 
       (char*)si->si_addr >= base_ptr + chunk_size) {
     log("Fault out of chunk. address: 0x%lx chunk_id: %"PRIu64" base_ptr: %p base_end: %p\n",
@@ -100,61 +108,55 @@ void dsm_sigsegv_handler(int sig, siginfo_t *si, void *unused) {
     return;
   }
 
+  // this works on x86_64 GNU/Linux 
+  if (((ucontext_t*)ctxt)->uc_mcontext.gregs[REG_ERR] & 0x2) {
+    log("write fault..................\n");
+    write_fault = 1;
+  } else {
+    log("read fault..................\n");
+    write_fault = 0;
+  }
+
   // Build page offset
   dhandle page_offset = (dhandle)get_page_offset((char *)(si->si_addr), base_ptr);
   char *page_start_addr = base_ptr + PAGESIZE*page_offset;
 
-  // NONE to READ (read-only) to WRITE (read write) transition
+  // Use a state transition table for this later?
   if (chunk_meta->pages[page_offset].page_prot == PROT_NONE) {
-    log("read fault..................\n");
-    write_fault = 0;
-    flags |= FLAG_PAGE_READ;
+    if (write_fault) {
+      flags |= FLAG_PAGE_WRITE;
+      chunk_meta->pages[page_offset].page_prot = PROT_WRITE;
+    } else {
+      flags |= FLAG_PAGE_READ;
+      chunk_meta->pages[page_offset].page_prot = PROT_READ;
+    }
   } else if (chunk_meta->pages[page_offset].page_prot == PROT_READ) {
-    log("write fault..................\n");
-    write_fault = 1;
     flags |= FLAG_PAGE_WRITE | FLAG_PAGE_NOUPDATE;
+    chunk_meta->pages[page_offset].page_prot = PROT_WRITE;
   }
  
   // Request page from master
-  if (g_dsm->is_master) {
-    uint64_t count;
-    if (dsm_getpage_internal(chunk_id, page_offset, 
-          g_dsm->host, g_dsm->port, &g_dsm->page_buffer, &count, flags) < 0) {
-      //TODO: we have not yet decided on what to do if page is not found;
-    }
-  } else {
-    dsm_request *r = g_dsm->master;
-    if (dsm_request_getpage(r, chunk_id, page_offset, 
-          g_dsm->host, g_dsm->port, &g_dsm->page_buffer, flags) < 0) {
-      //TODO: we have not yet decided on what to do if page is not found;
-    }
+  dsm_request *r = g_dsm->master;
+  if (dsm_request_getpage(r, chunk_id, page_offset, 
+        g_dsm->host, g_dsm->port, &g_dsm->page_buffer, flags) < 0) {
+    //TODO: we have not yet decided on what to do if page is not found;
   }
-
-  // set the protection to READ/WRITE so that 
-  // the page can be written
+  
+  // temporarily set the protection to READ/WRITE to update the page
   if (mprotect(page_start_addr, PAGESIZE, PROT_READ | PROT_WRITE) == -1)
     print_err("mprotect\n");
-  // No chunk_page_prot update needed for above mprotect as it's temp
-
+  
   // copy the page
   if (!(flags & FLAG_PAGE_NOUPDATE)) {
     memcpy(page_start_addr, g_dsm->page_buffer, PAGESIZE);
     log("writing page\n");
-  } else {
-    log("not writing page\n");
   }
 
-  // None to read (read-only) to write (read write) transition
-  if (write_fault) {
-    debug("write fault\n");
-    if (mprotect(page_start_addr, PAGESIZE, PROT_READ | PROT_WRITE) == -1)
-      print_err("mprotect\n");
-    chunk_meta->pages[page_offset].page_prot = PROT_WRITE;
-  } else {
+  // reset protection back to read if it is just read fault
+  if (!write_fault) {
     debug("read fault\n");
     if (mprotect(page_start_addr, PAGESIZE, PROT_READ) == -1)
       print_err("mprotect\n");
-    chunk_meta->pages[page_offset].page_prot = PROT_READ;
   }
 }
 
@@ -301,7 +303,6 @@ int dsm_init(dsm *d, const char* host, uint32_t port, int is_master) {
     print_err("barrier mutex init failed\n");
     return -1;
   }
-
   if (pthread_cond_init(&d->barrier_cond, NULL) != 0) {
     print_err("barrier cond init failed\n");
     return -1;

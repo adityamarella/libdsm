@@ -48,8 +48,9 @@ dsm_request* get_request_object(dsm *d, const uint8_t *host, uint32_t port) {
   return NULL;
 }
 
-inline static
-int get_request_idx(dsm *d, const uint8_t *host, uint32_t port) {
+inline 
+static int 
+get_request_idx(dsm *d, const uint8_t *host, uint32_t port) {
   dsm_request *clients = d->clients;
   //TODO assume the first index is always master
   for (int i = 1; i < d->c.num_nodes; i++) {
@@ -59,7 +60,28 @@ int get_request_idx(dsm *d, const uint8_t *host, uint32_t port) {
   return 0;
 }
 
-static int dsm_really_freechunk(dhandle chunk_id) { 
+static int 
+acquire_chunk_lock(dhandle chunk_id) {
+  uint32_t i;
+  dsm_chunk_meta *chunk_meta = &g_dsm->g_dsm_page_map[chunk_id];
+  for (i = 0; i < chunk_meta->count; i++) {
+    pthread_mutex_lock(&chunk_meta->pages[i].lock);
+  } 
+  return 0;
+}
+
+static int
+release_chunk_lock(dhandle chunk_id) {
+  uint32_t i;
+  dsm_chunk_meta *chunk_meta = &g_dsm->g_dsm_page_map[chunk_id];
+  for (i = 0; i < chunk_meta->count; i++) {
+    pthread_mutex_unlock(&chunk_meta->pages[i].lock);
+  } 
+  return 0;
+}
+
+static int 
+dsm_really_freechunk(dhandle chunk_id) { 
   uint32_t i;
   dsm_chunk_meta *chunk_meta = &g_dsm->g_dsm_page_map[chunk_id];
   if (mprotect(chunk_meta->g_base_ptr, chunk_meta->g_chunk_size, PROT_READ | PROT_WRITE) == -1) {
@@ -145,13 +167,16 @@ int dsm_invalidatepage_internal(dhandle chunk_id, dhandle page_offset) {
   // Change permissions to NONE
   // set the new owner for this page
   // TODO read-only pages can be kept
-  if (mprotect(page_start_addr, PAGESIZE, PROT_NONE) == -1) {
-    print_err("mprotect failed for addr=%p, error=%s\n", page_start_addr, strerror(errno));
-    return -1;
-  }
+  
   log("Acquiring mutex lock, chunk_id: %"PRIu64", %"PRIu64"\n", chunk_id, page_offset);
   pthread_mutex_lock(&page_meta->lock);
-  page_meta->page_prot = PROT_NONE;
+  if (page_meta->page_prot == PROT_WRITE) {
+    if (mprotect(page_start_addr, PAGESIZE, PROT_NONE) == -1) {
+      print_err("mprotect failed for addr=%p, error=%s\n", page_start_addr, strerror(errno));
+      return -1;
+    }
+    page_meta->page_prot = PROT_NONE;
+  }
   pthread_mutex_unlock(&page_meta->lock);
   log("Released lock, chunk_id: %"PRIu64", %"PRIu64"\n", chunk_id, page_offset);
   return 0;
@@ -200,23 +225,17 @@ int dsm_getpage_internal(dhandle chunk_id, dhandle page_offset,
     memcpy(*data, page_start_addr, PAGESIZE);
     *count = PAGESIZE; 
 
-    if (flags & FLAG_PAGE_WRITE ||
-        ((flags & FLAG_PAGE_READ) && page_meta->page_prot == PROT_WRITE)) {
+    if (flags & FLAG_PAGE_WRITE) {
       // Change permissions to NONE
       // set the new owner for this page
+      log("Client %s:%d requested write access chunk_id=%ld page_offset=%ld. Changing protection to PROT_NONE.\n",
+          requestor_host, requestor_port, chunk_id, page_offset);
       if ( (error = mprotect(page_start_addr, PAGESIZE, PROT_NONE)) == -1) {
         print_err("mprotect failed for addr=%p, error=%s\n", page_start_addr, strerror(errno));
         goto cleanup_unlock;
       }
-
       page_meta->page_prot = PROT_NONE;
-      log("Client %s:%d requested write page chunk_id=%ld page_offset=%ld\n",
-          requestor_host, requestor_port, chunk_id, page_offset);
-    } else {
-      log("Client %s:%d requested read page chunk_id=%ld page_offset=%ld\n",
-          requestor_host, requestor_port, chunk_id, page_offset);
-    }
-
+    } 
     goto cleanup_unlock;
   }
   
@@ -236,19 +255,9 @@ int dsm_getpage_internal(dhandle chunk_id, dhandle page_offset,
   // if yes serve the page; else get the page from owner and serve it
   if (0 == is_same_node(owner_host, owner_port, g_dsm->host, g_dsm->port)) {
     debug("this node is the owner %s:%d\n", owner_host, owner_port);
-
     char *page_start_addr = base_ptr + page_offset*PAGESIZE;
-
     memcpy(*data, page_start_addr, PAGESIZE);
     *count = PAGESIZE; 
-
-    // Change permissions to NONE
-    // set the new owner for this page
-    if ((error=mprotect(page_start_addr, PAGESIZE, PROT_NONE)) == -1) {
-      print_err("mprotect failed for addr=%p, error=%s\n", page_start_addr, strerror(errno));
-      goto cleanup_unlock;
-    }
-    page_meta->page_prot = PROT_NONE;
   } else {
     // this machine is not the owner of the page
     // get the page from the owner
@@ -272,20 +281,20 @@ int dsm_getpage_internal(dhandle chunk_id, dhandle page_offset,
     dsm_conf *c = &g_dsm->c;
     // Invalidate page for all hosts but the new owner
     for (int i = 0; i < c->num_nodes; i++) {
-
       // Continue for requester host and request port
-      if (c->ports[i] == requestor_port)
+      if (0 == is_same_node(requestor_host, requestor_port, c->hosts[i], c->ports[i]))
         continue;
 
       // for master locally invalidate page
       if (i == c->master_idx) {
         char *page_start_addr = base_ptr + page_offset*PAGESIZE;
-
-        if ((error=mprotect(page_start_addr, PAGESIZE, PROT_NONE)) == -1) {
-          print_err("mprotect failed for addr=%p, error=%s\n", page_start_addr, strerror(errno));
-          goto cleanup_unlock;
+        if (page_meta->page_prot == PROT_WRITE) {
+          if ((error=mprotect(page_start_addr, PAGESIZE, PROT_NONE)) == -1) {
+            print_err("mprotect failed for addr=%p, error=%s\n", page_start_addr, strerror(errno));
+            goto cleanup_unlock;
+          }
+          page_meta->page_prot = PROT_NONE;
         }
-        page_meta->page_prot = PROT_NONE;
         continue;
       }
 
@@ -338,11 +347,6 @@ int dsm_allocchunk_internal(dhandle chunk_id, size_t size,
     // initialize chunk meta structure
     chunk_meta->count = num_pages;
     chunk_meta->ref_counter = 1;
-    if (pthread_mutex_init(&chunk_meta->lock, NULL) != 0) {
-      print_err("mutex init failed\n");
-      ret = -1;
-      goto cleanup;
-    }
     
     // initialize page meta structure
     log("Allocing pages\n");

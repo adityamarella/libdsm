@@ -71,10 +71,11 @@ const char *strdsmerror(dsm_error error) {
 void printbuf(void *buf, size_t n) {
   size_t i;
   uchar *uchar_buf = (uchar *)buf;
+  printf("'");
   for (i = 0; i < n; i++) {
     printf("%02X", uchar_buf[i]);
     if ((i + 1) % 32 == 0) printf("\n");
   }
 
-  if (i % 32 != 0) printf("\n");
+  if (i % 32 != 0) printf("'\n");
 }
