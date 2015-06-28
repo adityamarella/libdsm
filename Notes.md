@@ -12,3 +12,5 @@
     * so the requirement is locatepage should always be followed by getpage? Is this a good design?
     * When/how to call invalidate page? Right now master is sending invalidatepage to all the nodes which are accessing the page. 
 * TODO: what to do when getpage fails? 
+* TODO: Cannot make synchronous networking calls from signal handler!
+  - make async call and wait on conditional lock on the page if that is allowed
