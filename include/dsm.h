@@ -17,7 +17,6 @@ typedef struct dsm_page_meta_struct {
 typedef struct dsm_chunk_meta_struct {
   uint32_t count;               // count of pages in this chunk
   uint32_t ref_counter;         // used to maintain how many clients are using the shared memory
-  pthread_mutex_t lock;
   uint32_t clients_using[64];    // used to maintain the list of clients using this chunk
   char *g_base_ptr;
   size_t g_chunk_size;

@@ -53,7 +53,7 @@ static int parse_command_line(int argc, char *argv[], test_options *opts) {
 
   // Parse the command line.
   int opt = '\0';
-  while ((opt = getopt(argc, argv, "hvmp:u:")) != -1) {
+  while ((opt = getopt(argc, argv, "hvmi:p:u:")) != -1) {
     switch (opt) {
       case 'h':
         usage();
@@ -69,6 +69,9 @@ static int parse_command_line(int argc, char *argv[], test_options *opts) {
         break;
       case 'p':
         opts->port = atoi(optarg);
+        break;
+      case 'i':
+        opts->node_id = atoi(optarg);
         break;
       case '?':
       default:
@@ -93,7 +96,8 @@ int main(int argc, char *argv[]) {
     return -1;
   }
 
-  test_matrix_mul(OPTIONS.host, OPTIONS.port, c.num_nodes, OPTIONS.is_master);
+  //test_ping_pong(OPTIONS.host, OPTIONS.port, c.num_nodes, OPTIONS.is_master);
+  test_matrix_mul(OPTIONS.host, OPTIONS.port, OPTIONS.node_id, c.num_nodes, OPTIONS.is_master);
 
   dsm_conf_close(&c);
   return 0; 

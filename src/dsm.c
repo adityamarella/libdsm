@@ -57,7 +57,7 @@ dhandle get_chunk_id_for_addr(char *saddr) {
     if (saddr >= base_ptr && saddr < base_ptr + chunk_size)
       return i; 
   }
-  return -1;
+  return NUM_CHUNKS;
 }
 
 static 
@@ -94,7 +94,13 @@ void dsm_sigsegv_handler(int sig, siginfo_t *si, void *ctxt) {
   uint32_t flags = 0;
 
   // get the chunk meta for this addr
-  dhandle chunk_id = get_chunk_id_for_addr((char*)si->si_addr);
+  dhandle chunk_id; 
+  if ((chunk_id = get_chunk_id_for_addr((char*)si->si_addr)) == NUM_CHUNKS) {
+    log("Wrong chunk id for addr: 0x%lx chunk_id: %"PRIu64"\n",
+        (long) si->si_addr, chunk_id);
+    return;
+  }
+
   dsm_chunk_meta *chunk_meta = &g_dsm->g_dsm_page_map[chunk_id];
   char *base_ptr = chunk_meta->g_base_ptr;
   size_t chunk_size = chunk_meta->g_chunk_size;
@@ -131,7 +137,7 @@ void dsm_sigsegv_handler(int sig, siginfo_t *si, void *ctxt) {
       chunk_meta->pages[page_offset].page_prot = PROT_READ;
     }
   } else if (chunk_meta->pages[page_offset].page_prot == PROT_READ) {
-    flags |= FLAG_PAGE_WRITE | FLAG_PAGE_NOUPDATE;
+    flags |= FLAG_PAGE_WRITE;
     chunk_meta->pages[page_offset].page_prot = PROT_WRITE;
   }
  
@@ -168,13 +174,13 @@ void dsm_sigsegv_handler(int sig, siginfo_t *si, void *ctxt) {
  * @param chunk_id is maintained by the user of libdsm;
  *        if multiple chunks are used then the user 
  *        has to ensure that chunk id are distinct
- * @param size is the size of the chunk 
+ * @param chunk_size is the size of the chunk 
  * @param @deprecated creator flag indicates whether this node is 
  *        the creator of this chunk; first one to call alloc is the creator
  *
  * @return pointer to the shared memory chunk; NULL in case of error
  */
-void *dsm_alloc(dsm *d, dhandle chunk_id, ssize_t size) {
+void *dsm_alloc(dsm *d, dhandle chunk_id, ssize_t chunk_size) {
   uint32_t i;
 
   // register signal handler for the chunk
@@ -186,29 +192,28 @@ void *dsm_alloc(dsm *d, dhandle chunk_id, ssize_t size) {
   }
 
   dsm_chunk_meta *chunk_meta = &d->g_dsm_page_map[chunk_id];
+  memset(chunk_meta, 0, sizeof(dsm_chunk_meta));
   
   // get page size
   PAGESIZE = sysconf(_SC_PAGE_SIZE);
   if (PAGESIZE == -1)
     handle_error("sysconf");
   debug("---------- PAGESIZE: %d\n", PAGESIZE);
+  
+  // initialize chunk related data structures
+  uint32_t num_pages = 1 + (chunk_size-1)/PAGESIZE;
+  chunk_meta->g_chunk_size = chunk_size;
 
   // allocate chunk memory
-  void *buffer = chunk_meta->g_base_ptr = memalign(PAGESIZE, size);
-  if (buffer == NULL)
+  void *base_ptr = chunk_meta->g_base_ptr = memalign(PAGESIZE, num_pages*PAGESIZE);
+  if (base_ptr == NULL)
     handle_error("memalign\n");
-  memset(buffer, 0, size);
+  memset(base_ptr, 0, chunk_size);
 
-  // initialize chunk related data structures
-  uint32_t num_pages = 1 + (size-1)/PAGESIZE;
-  chunk_meta->g_chunk_size = size;
+  log("Num pages alloc'ed for chunk %"PRIu64": %d\n", chunk_id, num_pages);
   
   if (!d->is_master) {
     // for master this is allocated in the internal function
-    if (pthread_mutex_init(&chunk_meta->lock, NULL) != 0) {
-      handle_error("mutex init failed\n");
-    }
-
     log("Allocing pages\n");
     chunk_meta->pages = (dsm_page_meta*)calloc(num_pages, sizeof(dsm_page_meta));
     for (i = 0; i < num_pages; i++) {
@@ -223,25 +228,26 @@ void *dsm_alloc(dsm *d, dhandle chunk_id, ssize_t size) {
   // When a request for a page comes from other nodes;
   //   master will get the chunk_meta, page_meta for the request and
   //   return the page
-  if ( (is_owner = dsm_request_allocchunk(d->master, chunk_id, size, d->host, d->port)) < 0) {
+  if ( (is_owner = dsm_request_allocchunk(d->master, chunk_id, chunk_size, d->host, d->port)) < 0) {
     handle_error("allocchunk failed\n");
   }
   log("Allocchunk success. I am the owner?  %s.\n", 
       is_owner==1?"Yes.":"No."); 
 
   if(is_owner) {
-    if (mprotect(buffer, size, PROT_READ | PROT_WRITE) == -1)
+    if (mprotect(base_ptr, chunk_size, PROT_READ | PROT_WRITE) == -1)
       handle_error("mprotect\n");
-    for (int i = 0; i < size / PAGESIZE; i++)
+    for (i = 0; i < num_pages; i++)
       chunk_meta->pages[i].page_prot = PROT_WRITE;
 
-  } else { 
-    if (mprotect(buffer, size, PROT_NONE) == -1)
+  } else {
+    log("prot none %p, %lx\n", base_ptr, chunk_size); 
+    if (mprotect(base_ptr, chunk_size, PROT_NONE) == -1)
       handle_error("mprotect\n");
-    for (int i = 0; i < size / PAGESIZE; i++)
+    for (i = 0; i < num_pages; i++)
       chunk_meta->pages[i].page_prot = PROT_NONE;
   }
-  return buffer;
+  return base_ptr;
 }
 
 void dsm_free(dsm *d, dhandle chunk_id) {

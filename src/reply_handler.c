@@ -89,16 +89,17 @@ void handle_freechunk(comm *c, dsm_freechunk_args *args) {
       .chunk_id = args->chunk_id
   });
   
-  // Send reply
-  if(comm_send_data(c, &reply, dsm_rep_size(freechunk)) < 0) {
-    print_err("Failed to send FREECHUNK reply.\n");
-  }
-
   // this happens after the response is sent so that the node does not blocking
   if (dsm_freechunk_internal(args->chunk_id, args->requestor_host, args->requestor_port) < 0) {
       handle_error(c, DSM_EBADALLOC);
       return;
   }
+  
+  // Send reply
+  if(comm_send_data(c, &reply, dsm_rep_size(freechunk)) < 0) {
+    print_err("Failed to send FREECHUNK reply.\n");
+  }
+
 }
 
 /**
@@ -150,8 +151,8 @@ void handle_locatepage(comm *c, dsm_locatepage_args *args) {
  */
 void handle_getpage(comm *c, dsm_getpage_args *args) {
   UNUSED(args);
-  log("Handling getpage for chunk_id=%"PRIu64", page_offset=%"PRIu64", host:port=%s:%d.\n", 
-      args->chunk_id, args->page_offset, args->client_host, args->client_port);
+  log("Handling getpage for chunk_id=%"PRIu64", page_offset=%"PRIu64", flags=%s host:port=%s:%d.\n", 
+      args->chunk_id, args->page_offset, strflag(args->flags), args->requestor_host, args->requestor_port);
 
   uint64_t count = PAGESIZE;
   size_t reply_size = dsm_rep_size(getpage) + PAGESIZE;
@@ -160,7 +161,7 @@ void handle_getpage(comm *c, dsm_getpage_args *args) {
 
   uint8_t *data = reply->content.getpage_rep.data;
   if (dsm_getpage_internal(args->chunk_id, args->page_offset, 
-    args->client_host, args->client_port, &data, &count, args->flags) < 0) {
+    args->requestor_host, args->requestor_port, &data, &count, args->flags) < 0) {
     handle_error(c, DSM_ENOPAGE);
     goto cleanup_reply;
   }
@@ -184,7 +185,7 @@ cleanup_reply:
  */
 void handle_invalidatepage(comm *c, dsm_invalidatepage_args *args) {
   log("Handling invalidatepage for chunk_id=%"PRIu64", page_offset=%"PRIu64", host:port=%s:%d.\n",
-      args->chunk_id, args->page_offset, args->client_host, args->client_port);
+      args->chunk_id, args->page_offset, args->requestor_host, args->requestor_port);
 
   if (dsm_invalidatepage_internal(args->chunk_id, args->page_offset) < 0) {
     handle_error(c, DSM_EINTERNAL);

@@ -39,6 +39,10 @@ typedef enum packed dsm_error_enum {
   PAD_ERROR_ENUM = INT_MAX
 } dsm_error;
 
+#define FLAG_PAGE_WRITE         0x01
+#define FLAG_PAGE_READ          0x02
+#define FLAG_PAGE_NOUPDATE      0x04
+
 #define HOST_NAME 128
 #define NUM_CHUNKS 64
 

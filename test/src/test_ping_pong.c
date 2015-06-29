@@ -10,9 +10,12 @@
 #include "dsm.h"
 #include "request.h"
 #include "reply_handler.h"
-#include "dsm_server.h"
+#include "server.h"
+
+static int g_chunk_id = 10;
 
 int test_dsm_master(const char *host, int port, int num_nodes, int is_master) {
+  UNUSED(num_nodes);
   int host_len = strlen(host);
   dsm *d = (dsm*)malloc(sizeof(dsm));
 
@@ -21,7 +24,7 @@ int test_dsm_master(const char *host, int port, int num_nodes, int is_master) {
   d->is_master = is_master;
   memcpy(d->host, host, 1+host_len);
 
-  if (dsm_init(d) < 0)
+  if (dsm_init(d, host, port, is_master) < 0)
     return 0;
 
   char *buffer = (char*)dsm_alloc(d, g_chunk_id, 4*PAGESIZE); 
@@ -48,6 +51,7 @@ cleanup:
 }
 
 int test_dsm_client_n(const char *host, int port, int num_nodes, int is_master) {
+  UNUSED(num_nodes);
   int host_len = strlen(host);
   dsm *d = (dsm*)malloc(sizeof(dsm));
 
@@ -56,7 +60,7 @@ int test_dsm_client_n(const char *host, int port, int num_nodes, int is_master) 
   d->is_master = is_master;
   memcpy(d->host, host, 1+host_len);
   
-  if (dsm_init(d) < 0)
+  if (dsm_init(d, host, port, is_master) < 0)
     return 0;
 
   char *buffer = (char*)dsm_alloc(d, g_chunk_id, 4*PAGESIZE); 
@@ -83,9 +87,10 @@ cleanup:
   return 0;
 }
 
-void test_ping_pong() {
-
+void test_ping_pong(const char *host, int port, int num_nodes, int is_master) {
+  if (is_master) {
+    test_dsm_master(host, port, num_nodes, is_master);
+  } else {
+    test_dsm_client_n(host, port, num_nodes, is_master);
+  }
 }
-
-#endif
-

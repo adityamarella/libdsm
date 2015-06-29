@@ -192,15 +192,22 @@ int dsm_request_getpage(dsm_request *r, dhandle chunk_id,
     dhandle page_offset, uint8_t *host, uint32_t port, 
     uint8_t **page_start_addr, uint32_t flags) {
   log("Sending getpage %"PRIu64", %"PRIu64", %s:%d\n", chunk_id, page_offset, host, port);
-  dsm_req req = make_request(GETPAGE, .getpage_args = {
-    .chunk_id = chunk_id,
-    .page_offset = page_offset,
-    .client_port = port,
-    .flags = flags,
-  });
-  memcpy(req.content.getpage_args.client_host, host, 1+strlen((char*)host));
+  size_t host_len = strlen((char*)host) + 1;
+  size_t req_size = dsm_req_size(getpage) + host_len*sizeof(uint8_t); 
+  dsm_req *req = (dsm_req*)malloc(req_size);
+  memset(req, 0, req_size);  
+  req->type = GETPAGE;
+  
+  dsm_getpage_args *args = &req->content.getpage_args;
+  args->chunk_id = chunk_id,
+  args->page_offset = page_offset,
+  args->flags = flags,
+  args->requestor_port = port,
+  memcpy(args->requestor_host, host, host_len);
 
-  dsm_rep *rep = dsm_request_req_rep(r, &req, dsm_req_size(getpage));
+  dsm_rep *rep = dsm_request_req_rep(r, req, req_size);
+  free(req);
+  
   if (rep == NULL) {
     log("Received NULL reply for getpage %"PRIu64", %"PRIu64", %s:%d\n",
         chunk_id, page_offset, host, port);
@@ -219,6 +226,8 @@ int dsm_request_getpage(dsm_request *r, dhandle chunk_id,
   memcpy(*page_start_addr, rep->content.getpage_rep.data,
          rep->content.getpage_rep.count);
 
+  log("First array value %lf\n", **((double**)page_start_addr));
+
   comm_free(&r->c, rep);
   return 0;
 }
@@ -233,21 +242,28 @@ int dsm_request_invalidatepage(dsm_request *r, dhandle chunk_id,
   UNUSED(host);
   UNUSED(port);
 
-  dsm_req req = make_request(INVALIDATEPAGE, .invalidatepage_args = {
-    .chunk_id = chunk_id,
-    .page_offset = page_offset,
-    .flags = flags,
-    .client_port = port,
-  });
+  size_t host_len = strlen((char*)host) + 1;
+  size_t req_size = dsm_req_size(invalidatepage) + host_len*sizeof(uint8_t); 
+  dsm_req *req = (dsm_req*)malloc(req_size);
+  memset(req, 0, req_size);  
+  req->type = INVALIDATEPAGE;
+  
+  dsm_invalidatepage_args *args = &req->content.invalidatepage_args;
+  args->chunk_id = chunk_id,
+  args->page_offset = page_offset,
+  args->flags = flags,
+  args->requestor_port = port,
+  memcpy(args->requestor_host, host, host_len);
+ 
 
-  memcpy(&req.content.getpage_args.client_host, host, 1+strlen((char*)host));
   log("Sending invalidatepage %"PRIu64", %"PRIu64", %s:%d\n", chunk_id, page_offset, host, port);
 
-  dsm_rep *rep = dsm_request_req_rep(r, &req, dsm_req_size(invalidatepage));
+  dsm_rep *rep = dsm_request_req_rep(r, req, req_size);
+  free(req);
+  
   if (rep == NULL) {
     return -1;
   }
-
   comm_free(&r->c, rep);
   return 0;
 }

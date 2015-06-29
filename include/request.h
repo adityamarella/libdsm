@@ -13,24 +13,21 @@ typedef struct dsm_request_struct {
   uint8_t host[HOST_NAME];
 } dsm_request;
 
-#define FLAG_PAGE_WRITE         0x01
-#define FLAG_PAGE_READ          0x02
-#define FLAG_PAGE_NOUPDATE      0x04
 
 typedef struct packed dsm_getpage_args_struct {
   dhandle chunk_id;
   dhandle page_offset;
-  uint32_t client_port;
-  uint8_t client_host[HOST_NAME];
   uint32_t flags;
+  uint32_t requestor_port;
+  uint8_t requestor_host[];
 } dsm_getpage_args;
 
 typedef struct packed dsm_invalidatepage_args_struct {
   dhandle chunk_id;
   dhandle page_offset;
-  uint32_t client_port;
-  uint8_t client_host[HOST_NAME];
   uint32_t flags;
+  uint32_t requestor_port;
+  uint8_t requestor_host[];
 } dsm_invalidatepage_args;
 
 typedef struct packed dsm_allocchunk_args_struct {

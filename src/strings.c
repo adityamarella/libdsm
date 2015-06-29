@@ -36,6 +36,27 @@ const char *strmsgtype(dsm_msg_type msg_type) {
 }
 
 /**
+ * Returns a string representation of the `flag`. The returned string is
+ * statically allocated and should not be free()d.
+ *
+ * @param flag indicates type of fault
+ *
+ * @return a statically allocated string respresenting the `flag`
+ */
+const char *strflag(int flag) {
+  switch (flag) {
+    case FLAG_PAGE_READ:
+      return "FLAG_PAGE_READ";
+    case FLAG_PAGE_WRITE:
+      return "FLAG_PAGE_WRITE";
+    case FLAG_PAGE_NOUPDATE:
+      return "FLAG_PAGE_NOUPDATE";
+    default:
+      return "UNKNOWN";
+  }
+}
+
+/**
  * Returns a string representation of the `error`. The returned string is
  * statically allocated and should not be free()d.
  *

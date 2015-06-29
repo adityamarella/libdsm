@@ -33,22 +33,18 @@ CCFLAGS = -ggdb -Wall -Wextra -Werror -Wno-unused-variable -Wswitch-default -Wwr
 DSM_SRCS = dsm.c conf.c dsm_internal.c reply_handler.c request.c strings.c comm.c server.c
 DSM_OBJS = $(DSM_SRCS:%.c=$(OBJ_DIR)/%.o)
 
-TEST_SRCS = main.c test_matrix_mul.c
+TEST_SRCS = main.c test_matrix_mul.c test_ping_pong.c
 TEST_OBJS = $(TEST_SRCS:%.c=$(OBJ_DIR)/%.o)
-
-MATRIX_MUL_SRCS = test_matrix_mul.c
-MATRIX_MUL_OBJS = $(MATRIX_MUL_SRCS:%.c=$(OBJ_DIR)/%.o)
-
 
 LIB_NAME = dsm
 LIB = $(LIB_DIR)/lib$(LIB_NAME).a
 TEST_BIN = $(BIN_DIR)/test
 
-.PHONY: all clean test test1 test2 test3 matrix_gen matrix_mul fault
+.PHONY: all clean test 
 
 vpath % $(SRC_DIR) $(TEST_DIR)
 
-all: $(LIB) test test1 test2 test3 matrix_gen matrix_mul fault
+all: $(LIB) 
 
 $(OBJ_DIR)/%.o: %.c $(EXTERN_INCLUDES)
 	@mkdir -p $(@D)
@@ -65,13 +61,6 @@ $(TEST_BIN): $(TEST_OBJS) $(LIB)
 
 test: $(TEST_BIN)
 #	@$(TEST_BIN) -v
-
-$(MATRIX_MUL_BIN): $(MATRIX_MUL_OBJS) $(LIB)
-	@mkdir -p $(@D)
-	@cp $(CONF_FILE) $(BIN_DIR)
-	$(CC) -o $@ $^ $(LDFLAGS) -L$(LIB_DIR) -ldsm -pthread $(THIRDPARTY_LIB_FLAGS)
-
-matrix_mul: $(MATRIX_MUL_BIN)
 
 clean:
 	rm -rf $(OBJ_DIR) $(BIN_DIR) $(LIB_DIR) a b c d e f g h

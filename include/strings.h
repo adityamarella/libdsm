@@ -6,6 +6,7 @@
 #include "dsmtypes.h"
 
 const char *strmsgtype(dsm_msg_type);
+const char *strflag(int flag);
 const char *strdsmerror(dsm_error);
 void printbuf(void *, size_t n);
 
