@@ -1,11 +1,37 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/time.h>
 #include "utils.h"
 #include "dsm.h"
 
+#define STATS 1
 #define ARR(A,cols,i,j) *((double*)(A + i*cols) + j)
 
+#ifdef STATS
+#define START_TIMING(a) a=current_us()
+#else
+#define START_TIMING(a)
+#endif
+
+#ifdef STATS
+#define END_TIMING(a) a=current_us()-a
+#else
+#define END_TIMING(a)
+#endif
+
+/**
+ * Get seconds from epoch
+ */
+long long current_us() {
+  struct timeval te;
+  gettimeofday(&te, NULL);
+  return (long long) te.tv_sec * 1000000 + te.tv_usec;
+}
+
+/**
+ * Utility to print matrix
+ */
 void print_matrix(double *m, int row, int col)
 {
   int i, j;
@@ -20,6 +46,9 @@ void print_matrix(double *m, int row, int col)
   printf("\n");
 }
 
+/**
+ * Utility to generate matrix
+ */
 void generate_matrix(double *m, double *lm, int row, int col)
 {
   int i, j;
@@ -31,6 +60,16 @@ void generate_matrix(double *m, double *lm, int row, int col)
   }
 }
 
+/**
+ * Multipy the matrics locally. To cross check the output and also to compare the time taken
+ * for the computation.
+ *
+ * @param lA matrix A
+ * @param lB matrix B
+ * @param m number of rows in A
+ * @param n number of cols in A OR rows in B
+ * @param p number of cols in B
+ */
 double* multiply_locally(double *lA, double *lB, int m, int n, int p) {
   int i, j, k;
   double *lC;
@@ -85,18 +124,27 @@ int test_matrix_mul(const char* host, int port, int node_id, int nnodes, int is_
   double *lA, *lB; // local memory for profiling
   int i, j, m, n, p, psz, pb;
   int cid = 0;
+
+#ifdef STATS
+  long long talloc=0, tbarrier=0, tprintA=0, tprintB=0, tcompute=0, tfree=0, tclose=0, ttotal=0;
+#endif
+
   dsm *d;
 
-  m = n = p = 3;
+  m = n = p = 100;
 
+
+  START_TIMING(ttotal);
   d = (dsm*)malloc(sizeof(dsm));
   memset(d, 0, sizeof(dsm));
   dsm_init(d, host, port, is_master);
 
+  START_TIMING(talloc);
   // allocate shared memory 
   A = (double*)dsm_alloc(d, cid++, m*n*sizeof(double));
   B = (double*)dsm_alloc(d, cid++, n*p*sizeof(double));
   C = (double*)dsm_alloc(d, cid++, m*n*sizeof(double));
+  END_TIMING(talloc);
  
   // allocate local memory 
   lA = (double*)malloc(m*n*sizeof(double));
@@ -109,15 +157,23 @@ int test_matrix_mul(const char* host, int port, int node_id, int nnodes, int is_
   }
   
   // all nodes should reach this point before proceeding
+  START_TIMING(tbarrier);
   dsm_barrier_all(d);
+  END_TIMING(tbarrier);
  
   // do this to generate read fault 
+  START_TIMING(tprintA);
   print_matrix(A, m, n);
+  END_TIMING(tprintA);
+  START_TIMING(tprintB);
   print_matrix(B, n, p);
+  END_TIMING(tprintB);
   
   // multiply the assigned partition
   psz = 1 + (m - 1) / nnodes;
   pb = node_id * psz;
+  
+  START_TIMING(tcompute);
   double **result = multiply_partition(A, B, m, n, p, pb, psz);
 
   // finally copy the result into shared memory
@@ -130,25 +186,57 @@ int test_matrix_mul(const char* host, int port, int node_id, int nnodes, int is_
   // all nodes should reach this point before proceeding
   dsm_barrier_all(d);
   print_matrix(C, m, p);
+  END_TIMING(tcompute);
 
   // free local memory
   for (i = 0; i < m; i++)
     free(result[i]);
   free(result);
 
-
   // free global shared memory
+  START_TIMING(tfree);
   for (i = 0; i < cid; i++)
     dsm_free(d, i);
+  END_TIMING(tfree);
+
+  START_TIMING(tclose);
   dsm_close(d);
+  END_TIMING(tclose);
+
   free(d);
+  END_TIMING(ttotal);
   
   // multiply locally
   if (node_id == 0) {
+    int flag = 1;
     double *lC = multiply_locally(lA, lB, m, n, p);
-    print_matrix(lC, m, p);
+    for (i = 0; i < m; i++) {
+      for (j = 0; j < p; j++) {
+        if (*((double*)(C + i*p) + j) != *((double*)(lC + i*p) + j)) {
+          flag = 0;
+          goto OUT_FALSE;
+        }
+      }
+    }
+OUT_FALSE:
+    if (flag) printf("Success.\n");
+    else printf("Failed.\n");
     free(lC);
   }
-  free(lA); free(lB); 
+  free(lA); free(lB);
+
+#ifdef STATS
+  printf("----------STATS--------\n");
+  printf("alloc %lldus.\n", talloc);
+  printf("barrier %lldus.\n", tbarrier);
+  printf("printA %lldus.\n", tprintA);
+  printf("printB %lldus.\n", tprintB);
+  printf("compute %lldus.\n", tcompute);
+  printf("free %lldus.\n", tfree);
+  printf("close %lldus.\n", tclose);
+  printf("total %lldus.\n", ttotal);
+  printf("----------STATS--------\n");
+#endif
+
   return 0;
 }
