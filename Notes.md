@@ -14,3 +14,4 @@
 * TODO: what to do when getpage fails? 
 * TODO: Cannot make synchronous networking calls from signal handler!
   - make async call and wait on conditional lock on the page if that is allowed
+* Test code is extremely sensitive to compiler optimizations O2 works, O0 doesn't work; O2 doesn't with bigger matrices.
