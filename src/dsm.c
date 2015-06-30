@@ -96,7 +96,7 @@ void dsm_sigsegv_handler(int sig, siginfo_t *si, void *ctxt) {
   // get the chunk meta for this addr
   dhandle chunk_id; 
   if ((chunk_id = get_chunk_id_for_addr((char*)si->si_addr)) == NUM_CHUNKS) {
-    log("Wrong chunk id for addr: 0x%lx chunk_id: %"PRIu64"\n",
+    print_err("Wrong chunk id for addr: 0x%lx chunk_id: %"PRIu64"\n",
         (long) si->si_addr, chunk_id);
     return;
   }
@@ -109,23 +109,28 @@ void dsm_sigsegv_handler(int sig, siginfo_t *si, void *ctxt) {
   // TODO remove this later
   if ((char*)si->si_addr < base_ptr || 
       (char*)si->si_addr >= base_ptr + chunk_size) {
-    log("Fault out of chunk. address: 0x%lx chunk_id: %"PRIu64" base_ptr: %p base_end: %p\n",
+    print_err("Fault out of chunk. address: 0x%lx chunk_id: %"PRIu64" base_ptr: %p base_end: %p\n",
         (long) si->si_addr, chunk_id, base_ptr, base_ptr + chunk_size);
     return;
   }
-
-  // this works on x86_64 GNU/Linux 
-  if (((ucontext_t*)ctxt)->uc_mcontext.gregs[REG_ERR] & 0x2) {
-    log("write fault..................\n");
-    write_fault = 1;
-  } else {
-    log("read fault..................\n");
-    write_fault = 0;
-  }
-
+  
   // Build page offset
   dhandle page_offset = (dhandle)get_page_offset((char *)(si->si_addr), base_ptr);
   char *page_start_addr = base_ptr + PAGESIZE*page_offset;
+
+  // this works on x86_64 GNU/Linux 
+  if (((ucontext_t*)ctxt)->uc_mcontext.gregs[REG_ERR] & 0x2) {
+    write_fault = 1;
+  } else {
+    write_fault = 0;
+  }
+
+#ifdef _DSM_STATS
+  if (write_fault)
+    chunk_meta->pages[page_offset].num_write_faults++;
+  else
+    chunk_meta->pages[page_offset].num_read_faults++;
+#endif
 
   // Use a state transition table for this later?
   if (chunk_meta->pages[page_offset].page_prot == PROT_NONE) {
@@ -146,6 +151,7 @@ void dsm_sigsegv_handler(int sig, siginfo_t *si, void *ctxt) {
   if (dsm_request_getpage(r, chunk_id, page_offset, 
         g_dsm->host, g_dsm->port, &g_dsm->page_buffer, flags) < 0) {
     //TODO: we have not yet decided on what to do if page is not found;
+    print_err("getpage failed\n");
   }
   
   // temporarily set the protection to READ/WRITE to update the page
@@ -155,12 +161,10 @@ void dsm_sigsegv_handler(int sig, siginfo_t *si, void *ctxt) {
   // copy the page
   if (!(flags & FLAG_PAGE_NOUPDATE)) {
     memcpy(page_start_addr, g_dsm->page_buffer, PAGESIZE);
-    log("writing page\n");
   }
 
   // reset protection back to read if it is just read fault
   if (!write_fault) {
-    debug("read fault\n");
     if (mprotect(page_start_addr, PAGESIZE, PROT_READ) == -1)
       print_err("mprotect\n");
   }
@@ -203,6 +207,7 @@ void *dsm_alloc(dsm *d, dhandle chunk_id, ssize_t chunk_size) {
   // initialize chunk related data structures
   uint32_t num_pages = 1 + (chunk_size-1)/PAGESIZE;
   chunk_meta->g_chunk_size = chunk_size;
+  log("Num pages alloc'ed for chunk %"PRIu64": %d\n", chunk_id, num_pages);
 
   // allocate chunk memory
   void *base_ptr = chunk_meta->g_base_ptr = memalign(PAGESIZE, num_pages*PAGESIZE);
@@ -210,11 +215,8 @@ void *dsm_alloc(dsm *d, dhandle chunk_id, ssize_t chunk_size) {
     handle_error("memalign\n");
   memset(base_ptr, 0, chunk_size);
 
-  log("Num pages alloc'ed for chunk %"PRIu64": %d\n", chunk_id, num_pages);
-  
   if (!d->is_master) {
     // for master this is allocated in the internal function
-    log("Allocing pages\n");
     chunk_meta->pages = (dsm_page_meta*)calloc(num_pages, sizeof(dsm_page_meta));
     for (i = 0; i < num_pages; i++) {
       if (pthread_mutex_init(&chunk_meta->pages[i].lock, NULL) != 0) {
@@ -241,7 +243,7 @@ void *dsm_alloc(dsm *d, dhandle chunk_id, ssize_t chunk_size) {
       chunk_meta->pages[i].page_prot = PROT_WRITE;
 
   } else {
-    log("prot none %p, %lx\n", base_ptr, chunk_size); 
+    log("prot none %p, %zu\n", base_ptr, chunk_size); 
     if (mprotect(base_ptr, chunk_size, PROT_NONE) == -1)
       handle_error("mprotect\n");
     for (i = 0; i < num_pages; i++)
@@ -251,6 +253,19 @@ void *dsm_alloc(dsm *d, dhandle chunk_id, ssize_t chunk_size) {
 }
 
 void dsm_free(dsm *d, dhandle chunk_id) {
+#ifdef _DSM_STATS
+  uint64_t j;
+  dsm_chunk_meta *chunk_meta = &d->g_dsm_page_map[chunk_id];
+  if (chunk_meta->count != 0) {
+    printf("----Chunk: %"PRIu64"----\n", chunk_id);
+    for (j = 0; j < chunk_meta->count; j++) {
+      dsm_page_meta *page_meta = &chunk_meta->pages[j];
+      printf("  Page %"PRIu64" read/write faults = %d/%d\n", j, 
+          page_meta->num_read_faults, 
+          page_meta->num_write_faults);
+    }
+  }
+#endif
   dsm_request_freechunk(d->master, chunk_id, d->host, d->port);
 }
 

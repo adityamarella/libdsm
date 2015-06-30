@@ -1,6 +1,10 @@
 #ifndef __DSM_H_
 #define __DSM_H_
 
+#ifndef _DSM_STATS
+#define _DSM_STATS
+#endif
+
 #include "dsmtypes.h"
 #include "conf.h"
 #include "request.h"
@@ -10,6 +14,11 @@ typedef struct dsm_page_meta_struct {
   dhandle chunk_id;                // chunk_id; this is maintained by the user
   pthread_mutex_t lock;
   int page_prot;
+  uint64_t nodes_reading;
+#ifdef _DSM_STATS
+  int num_read_faults;
+  int num_write_faults;
+#endif
   uint32_t port;                    // port on the owner node is listening 
   uint8_t owner_host[HOST_NAME];    // node which owns this memory
 } dsm_page_meta;

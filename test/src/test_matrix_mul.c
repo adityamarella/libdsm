@@ -5,16 +5,16 @@
 #include "utils.h"
 #include "dsm.h"
 
-#define STATS 1
+#define _MUL_STATS 1
 #define ARR(A,cols,i,j) *((double*)(A + i*cols) + j)
 
-#ifdef STATS
+#ifdef _MUL_STATS
 #define START_TIMING(a) a=current_us()
 #else
 #define START_TIMING(a)
 #endif
 
-#ifdef STATS
+#ifdef _MUL_STATS
 #define END_TIMING(a) a=current_us()-a
 #else
 #define END_TIMING(a)
@@ -34,9 +34,10 @@ long long current_us() {
  */
 void print_matrix(double *m, int row, int col)
 {
-  int i, j;
   printf("row:%d col:%d\n\n", row, col);
   printf("generate read fault: %lf\n\n", (double)*m);
+  
+  int i, j;
   for (i = 0; i < row; i++) {
     for (j = 0; j < col; j++) {
       printf("%lf ", *((double*)(m + i*col) + j));
@@ -44,6 +45,20 @@ void print_matrix(double *m, int row, int col)
     printf("\n");
   }
   printf("\n");
+  
+}
+
+/**
+ * Utility to access matrix
+ */
+void access_matrix(double *m, int row, int col)
+{
+  int i, j;
+  for (i = 0; i < row; i++) {
+    for (j = 0; j < col; j++) {
+      volatile double tmp = *((double*)(m + i*col) + j);
+    }
+  }
 }
 
 /**
@@ -110,11 +125,12 @@ double** multiply_partition(double *A, double *B, int m, int n, int p, int pb, i
   for (i = pb; i < pb + psz && i < m; i++) {
     for (j = 0; j < p; j++) {
       for(k = 0; k < n; k++) {
-        C[i - pb][j] += ARR(A, n, i, k) * ARR(B, p, k, j);
+        volatile double a = ARR(A, n, i, k);
+        volatile double b = ARR(B, p, k, j);
+        C[i - pb][j] += a * b; 
       }
-      printf("\n");
     }
-    printf("completed C[%d] \n\n", i);
+    //printf("completed C[%d] \n\n", i);
   }
   return C;
 }
@@ -125,14 +141,13 @@ int test_matrix_mul(const char* host, int port, int node_id, int nnodes, int is_
   int i, j, m, n, p, psz, pb;
   int cid = 0;
 
-#ifdef STATS
+#ifdef _MUL_STATS
   long long talloc=0, tbarrier=0, tprintA=0, tprintB=0, tcompute=0, tfree=0, tclose=0, ttotal=0;
 #endif
 
   dsm *d;
 
   m = n = p = 100;
-
 
   START_TIMING(ttotal);
   d = (dsm*)malloc(sizeof(dsm));
@@ -162,13 +177,14 @@ int test_matrix_mul(const char* host, int port, int node_id, int nnodes, int is_
   END_TIMING(tbarrier);
  
   // do this to generate read fault 
-  START_TIMING(tprintA);
+  /*START_TIMING(tprintA);
   print_matrix(A, m, n);
   END_TIMING(tprintA);
   START_TIMING(tprintB);
   print_matrix(B, n, p);
   END_TIMING(tprintB);
-  
+  */
+
   // multiply the assigned partition
   psz = 1 + (m - 1) / nnodes;
   pb = node_id * psz;
@@ -185,7 +201,7 @@ int test_matrix_mul(const char* host, int port, int node_id, int nnodes, int is_
   
   // all nodes should reach this point before proceeding
   dsm_barrier_all(d);
-  print_matrix(C, m, p);
+  access_matrix(C, m, p);
   END_TIMING(tcompute);
 
   // free local memory
@@ -225,8 +241,8 @@ OUT_FALSE:
   }
   free(lA); free(lB);
 
-#ifdef STATS
-  printf("----------STATS--------\n");
+#ifdef _MUL_STATS
+  printf("----------_MUL_STATS--------\n");
   printf("alloc %lldus.\n", talloc);
   printf("barrier %lldus.\n", tbarrier);
   printf("printA %lldus.\n", tprintA);
@@ -235,7 +251,7 @@ OUT_FALSE:
   printf("free %lldus.\n", tfree);
   printf("close %lldus.\n", tclose);
   printf("total %lldus.\n", ttotal);
-  printf("----------STATS--------\n");
+  printf("----------_MUL_STATS--------\n");
 #endif
 
   return 0;
