@@ -33,7 +33,7 @@ CCFLAGS = -ggdb -Wall -Wextra -Werror -Wno-unused-variable -Wswitch-default -Wwr
 DSM_SRCS = dsm.c conf.c dsm_internal.c reply_handler.c request.c strings.c comm.c server.c
 DSM_OBJS = $(DSM_SRCS:%.c=$(OBJ_DIR)/%.o)
 
-TEST_SRCS = main.c test_matrix_mul.c test_ping_pong.c
+TEST_SRCS = main.c test_matrix_mul.c test_ping_pong.c profiling.c
 TEST_OBJS = $(TEST_SRCS:%.c=$(OBJ_DIR)/%.o)
 
 LIB_NAME = dsm

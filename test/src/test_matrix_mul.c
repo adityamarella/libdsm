@@ -20,9 +20,11 @@
 #define END_TIMING(a)
 #endif
 
+extern volatile double tmp;
 /**
  * Get seconds from epoch
  */
+static
 long long current_us() {
   struct timeval te;
   gettimeofday(&te, NULL);
@@ -32,6 +34,7 @@ long long current_us() {
 /**
  * Utility to print matrix
  */
+/*static
 void print_matrix(double *m, int row, int col)
 {
   printf("row:%d col:%d\n\n", row, col);
@@ -45,18 +48,18 @@ void print_matrix(double *m, int row, int col)
     printf("\n");
   }
   printf("\n");
-  
-}
+}*/
 
 /**
  * Utility to access matrix
  */
+static
 void access_matrix(double *m, int row, int col)
 {
   int i, j;
   for (i = 0; i < row; i++) {
     for (j = 0; j < col; j++) {
-      volatile double tmp = *((double*)(m + i*col) + j);
+      tmp = *((double*)(m + i*col) + j);
     }
   }
 }
@@ -64,6 +67,7 @@ void access_matrix(double *m, int row, int col)
 /**
  * Utility to generate matrix
  */
+static
 void generate_matrix(double *m, double *lm, int row, int col)
 {
   int i, j;
@@ -115,9 +119,10 @@ double* multiply_locally(double *lA, double *lB, int m, int n, int p) {
  */
 double** multiply_partition(double *A, double *B, int m, int n, int p, int pb, int psz) {
   int i, j, k;
-  double **C;
+  volatile double **C;
+  volatile double a, b;
 
-  C = (double**)calloc(psz, sizeof(double*));
+  C = (volatile double**)calloc(psz, sizeof(double*));
   for (i = 0; i < psz; i++) {
     C[i] = (double*)calloc(p, sizeof(double));
   }
@@ -125,14 +130,14 @@ double** multiply_partition(double *A, double *B, int m, int n, int p, int pb, i
   for (i = pb; i < pb + psz && i < m; i++) {
     for (j = 0; j < p; j++) {
       for(k = 0; k < n; k++) {
-        volatile double a = ARR(A, n, i, k);
-        volatile double b = ARR(B, p, k, j);
+        a = ARR(A, n, i, k);
+        b = ARR(B, p, k, j);
         C[i - pb][j] += a * b; 
       }
     }
     //printf("completed C[%d] \n\n", i);
   }
-  return C;
+  return (double**)C;
 }
 
 int test_matrix_mul(const char* host, int port, int node_id, int nnodes, int is_master) {
@@ -158,7 +163,7 @@ int test_matrix_mul(const char* host, int port, int node_id, int nnodes, int is_
   // allocate shared memory 
   A = (double*)dsm_alloc(d, cid++, m*n*sizeof(double));
   B = (double*)dsm_alloc(d, cid++, n*p*sizeof(double));
-  C = (double*)dsm_alloc(d, cid++, m*n*sizeof(double));
+  C = (double*)dsm_alloc(d, cid++, m*p*sizeof(double));
   END_TIMING(talloc);
  
   // allocate local memory 

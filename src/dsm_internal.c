@@ -93,7 +93,6 @@ dsm_really_freechunk(dhandle chunk_id) {
   }
   free(chunk_meta->g_base_ptr);
   
-  
   // destroy lock variables
   log("Destroying page locks\n");
   for (i = 0; i < chunk_meta->count; i++) {
@@ -198,7 +197,6 @@ int dsm_getpage_internal(dhandle chunk_id, dhandle page_offset,
   UNUSED(flags);
 
   int error = 0;
-
   dsm_chunk_meta *chunk_meta = &g_dsm->g_dsm_page_map[chunk_id];
   dsm_page_meta *page_meta = &chunk_meta->pages[page_offset];
   log("Acquiring mutex lock, chunk_id: %"PRIu64", %"PRIu64"\n", chunk_id, page_offset);
@@ -317,7 +315,7 @@ int dsm_allocchunk_internal(dhandle chunk_id, size_t size,
   uint32_t i;
   uint32_t num_pages = 1 + (size-1)/PAGESIZE;
   
-  debug("Allocing chunk. Setting page map for chunk %"PRIu64", %zu, owner=%s, port=%d\n", 
+  log("Allocing chunk. Setting page map for chunk %"PRIu64", %zu, owner=%s, port=%d\n", 
       chunk_id, size, requestor_host, requestor_port);
   dsm_chunk_meta *chunk_meta = &g_dsm->g_dsm_page_map[chunk_id];
 
@@ -332,7 +330,6 @@ int dsm_allocchunk_internal(dhandle chunk_id, size_t size,
     chunk_meta->ref_counter = 1;
     
     // initialize page meta structure
-    log("Allocing pages\n");
     chunk_meta->pages = (dsm_page_meta*)calloc(num_pages, sizeof(dsm_page_meta));
     for (i = 0; i < num_pages; i++) {
       if (pthread_mutex_init(&chunk_meta->pages[i].lock, NULL) != 0) {
@@ -344,7 +341,6 @@ int dsm_allocchunk_internal(dhandle chunk_id, size_t size,
       m->chunk_id = chunk_id;
       m->port = requestor_port;
       strncpy((char*)m->owner_host, (char*)requestor_host, sizeof(m->owner_host));
-      log("chunk id: %"PRIu64", page %d owner %s:%d, %p\n", chunk_id, i, m->owner_host, m->port, m);
     }
   } else {
     // this means some other node already created the chunk and is the owner now
@@ -358,7 +354,6 @@ int dsm_allocchunk_internal(dhandle chunk_id, size_t size,
     chunk_meta->ref_counter++;
     chunk_meta->clients_using[get_request_idx(g_dsm, requestor_host, requestor_port)] = 1;
   }
-
 cleanup:
   log("Released lock, chunk_id: %"PRIu64"\n", chunk_id);
   return ret;
