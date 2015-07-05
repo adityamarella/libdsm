@@ -28,9 +28,9 @@ THIRDPARTY_LIB_FLAGS = -lnanomsg
 LDFLAGS = -ggdb
 ARFLAGS = -r
 CCFLAGS = -ggdb -Wall -Wextra -Werror -Wno-unused-variable -Wswitch-default -Wwrite-strings \
-	-O3 -Iinclude -Itest/include -std=gnu99 $(CFLAGS) -x c
+	-O2 -Iinclude -Itest/include -std=gnu99 $(CFLAGS) -x c
 
-DSM_SRCS = dsm.c conf.c dsm_internal.c reply_handler.c request.c strings.c comm.c server.c
+DSM_SRCS = dsm.c conf.c dsm_internal.c reply_handler.c request.c strings.c comm.c server.c utils.c
 DSM_OBJS = $(DSM_SRCS:%.c=$(OBJ_DIR)/%.o)
 
 TEST_SRCS = main.c test_matrix_mul.c test_ping_pong.c profiling.c

@@ -81,10 +81,8 @@ void handle_allocchunk(comm *c, dsm_allocchunk_args *args) {
 
 void handle_freechunk(comm *c, dsm_freechunk_args *args) {
   UNUSED(args);
-
   log("Handling freechunk for chunk %"PRIu64" from %s:%d\n", 
       args->chunk_id, args->requestor_host, args->requestor_port);
-
   dsm_rep reply = make_reply(FREECHUNK, .freechunk_rep = {
       .chunk_id = args->chunk_id
   });
@@ -99,7 +97,6 @@ void handle_freechunk(comm *c, dsm_freechunk_args *args) {
   if(comm_send_data(c, &reply, dsm_rep_size(freechunk)) < 0) {
     print_err("Failed to send FREECHUNK reply.\n");
   }
-
 }
 
 /**

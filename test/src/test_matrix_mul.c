@@ -21,15 +21,6 @@
 #endif
 
 extern volatile double tmp;
-/**
- * Get seconds from epoch
- */
-static
-long long current_us() {
-  struct timeval te;
-  gettimeofday(&te, NULL);
-  return (long long) te.tv_sec * 1000000 + te.tv_usec;
-}
 
 /**
  * Utility to print matrix
@@ -54,13 +45,11 @@ void print_matrix(double *m, int row, int col)
  * Utility to access matrix
  */
 static
-void access_matrix(double *m, int row, int col)
+void access_matrix(double *m, int r, int c)
 {
   int i, j;
-  for (i = 0; i < row; i++) {
-    for (j = 0; j < col; j++) {
-      tmp = *((double*)(m + i*col) + j);
-    }
+  for (i = 0; i < r*c; i++) {
+      tmp = *(m + i);
   }
 }
 
@@ -93,7 +82,7 @@ double* multiply_locally(double *lA, double *lB, int m, int n, int p) {
   int i, j, k;
   double *lC;
   
-  lC = (double*)malloc(m*p*sizeof(double));
+  lC = (double*)calloc(m*p, sizeof(double));
   for (i = 0; i < m; i++) {
     for (j = 0; j < p; j++) {
       for(k = 0; k < n; k++) {
@@ -117,42 +106,41 @@ double* multiply_locally(double *lA, double *lB, int m, int n, int p) {
  *
  * Assumption: 
  */
-double** multiply_partition(double *A, double *B, int m, int n, int p, int pb, int psz) {
+double* multiply_partition(double *A, double *B, int m, int n, int p, int pb, int psz) {
   int i, j, k;
-  volatile double **C;
+  volatile double *C;
   volatile double a, b;
 
-  C = (volatile double**)calloc(psz, sizeof(double*));
-  for (i = 0; i < psz; i++) {
-    C[i] = (double*)calloc(p, sizeof(double));
-  }
+  C = (volatile double*)calloc(psz*p, sizeof(double));
 
   for (i = pb; i < pb + psz && i < m; i++) {
     for (j = 0; j < p; j++) {
       for(k = 0; k < n; k++) {
         a = ARR(A, n, i, k);
         b = ARR(B, p, k, j);
-        C[i - pb][j] += a * b; 
+        C[i*p -pb*p + j] += a * b; 
       }
     }
-    //printf("completed C[%d] \n\n", i);
   }
-  return (double**)C;
+  return (double*)C;
 }
 
 int test_matrix_mul(const char* host, int port, int node_id, int nnodes, int is_master) {
+  UNUSED(nnodes);
   double *A, *B, *C;
   double *lA, *lB; // local memory for profiling
   int i, j, m, n, p, psz, pb;
   int cid = 0;
 
 #ifdef _MUL_STATS
-  long long talloc=0, tbarrier=0, tprintA=0, tprintB=0, tcompute=0, tfree=0, tclose=0, ttotal=0;
+  long long talloc=0, tbarrier=0, tprintA=0;
+  long long tprintB=0, tcompute=0, tfree=0;
+  long long tclose=0, ttotal=0, tlcompute=0;
 #endif
 
   dsm *d;
 
-  m = n = p = 100;
+  m = n = p = 1024;
 
   START_TIMING(ttotal);
   d = (dsm*)malloc(sizeof(dsm));
@@ -182,38 +170,54 @@ int test_matrix_mul(const char* host, int port, int node_id, int nnodes, int is_
   END_TIMING(tbarrier);
  
   // do this to generate read fault 
-  /*START_TIMING(tprintA);
-  print_matrix(A, m, n);
+  START_TIMING(tprintA);
+  access_matrix(A, m, n);
   END_TIMING(tprintA);
   START_TIMING(tprintB);
-  print_matrix(B, n, p);
+  access_matrix(B, n, p);
   END_TIMING(tprintB);
-  */
 
   // multiply the assigned partition
   psz = 1 + (m - 1) / nnodes;
   pb = node_id * psz;
   
   START_TIMING(tcompute);
-  double **result = multiply_partition(A, B, m, n, p, pb, psz);
+  double *result = multiply_partition(A, B, m, n, p, pb, psz);
 
   // finally copy the result into shared memory
-  for (i = pb; i < pb + psz && i < m; i++) {
-    for (j = 0; j < p; j++) {
-      *((double*)(C + i*p) + j) = result[i - pb][j];
-    }
+  for (i = pb*p; i < pb*p + psz*p && i < m*p; i++) {
+    *(C + i) = result[i-pb*p];
   }
+  
+  // free local memory
+  free(result);
   
   // all nodes should reach this point before proceeding
   dsm_barrier_all(d);
-  access_matrix(C, m, p);
+  if (node_id == 0)
+    access_matrix(C, m, p);
   END_TIMING(tcompute);
 
-  // free local memory
-  for (i = 0; i < m; i++)
-    free(result[i]);
-  free(result);
-
+  // multiply locally to verify computation
+  if (node_id == 0) {
+    int flag = 1;
+    printf("Computing locally.\n");
+    START_TIMING(tlcompute);
+    double *lC = multiply_locally(lA, lB, m, n, p);
+    END_TIMING(tlcompute);
+    for (i = 0; i < m*p; i++) {
+      if (*(C + i) != *(lC + i)) {
+        flag = 0;
+        goto OUT_FALSE;
+      }
+    }
+OUT_FALSE:
+    if (flag) printf("Success.\n");
+    else printf("Failed.\n");
+    free(lC);
+  }
+  free(lA); free(lB);
+  
   // free global shared memory
   START_TIMING(tfree);
   for (i = 0; i < cid; i++)
@@ -224,27 +228,9 @@ int test_matrix_mul(const char* host, int port, int node_id, int nnodes, int is_
   dsm_close(d);
   END_TIMING(tclose);
 
-  free(d);
+  free((void*)d);
   END_TIMING(ttotal);
   
-  // multiply locally
-  if (node_id == 0) {
-    int flag = 1;
-    double *lC = multiply_locally(lA, lB, m, n, p);
-    for (i = 0; i < m; i++) {
-      for (j = 0; j < p; j++) {
-        if (*((double*)(C + i*p) + j) != *((double*)(lC + i*p) + j)) {
-          flag = 0;
-          goto OUT_FALSE;
-        }
-      }
-    }
-OUT_FALSE:
-    if (flag) printf("Success.\n");
-    else printf("Failed.\n");
-    free(lC);
-  }
-  free(lA); free(lB);
 
 #ifdef _MUL_STATS
   printf("----------_MUL_STATS--------\n");
@@ -253,6 +239,7 @@ OUT_FALSE:
   printf("printA %lldus.\n", tprintA);
   printf("printB %lldus.\n", tprintB);
   printf("compute %lldus.\n", tcompute);
+  printf("local compute %lldus.\n", tlcompute);
   printf("free %lldus.\n", tfree);
   printf("close %lldus.\n", tclose);
   printf("total %lldus.\n", ttotal);

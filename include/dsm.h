@@ -1,10 +1,6 @@
 #ifndef __DSM_H_
 #define __DSM_H_
 
-#ifndef _DSM_STATS
-#define _DSM_STATS
-#endif
-
 #include "dsmtypes.h"
 #include "conf.h"
 #include "request.h"
@@ -13,8 +9,8 @@
 typedef struct dsm_page_meta_struct {
   dhandle chunk_id;                // chunk_id; this is maintained by the user
   pthread_mutex_t lock;
-  int page_prot;
-  uint64_t nodes_reading;
+  volatile int page_prot;
+  volatile uint64_t nodes_reading;
 #ifdef _DSM_STATS
   int num_read_faults;
   int num_write_faults;
@@ -23,7 +19,7 @@ typedef struct dsm_page_meta_struct {
   uint8_t owner_host[HOST_NAME];    // node which owns this memory
 } dsm_page_meta;
 
-typedef struct dsm_chunk_meta_struct {
+typedef volatile struct dsm_chunk_meta_struct {
   uint32_t count;               // count of pages in this chunk
   uint32_t ref_counter;         // used to maintain how many clients are using the shared memory
   uint32_t clients_using[64];    // used to maintain the list of clients using this chunk

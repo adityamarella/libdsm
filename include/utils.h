@@ -1,11 +1,13 @@
-#ifndef SNFS_COMMON_UTILS_H
-#define SNFS_COMMON_UTILS_H
+#ifndef DSM_COMMON_UTILS_H
+#define DSM_COMMON_UTILS_H
 
 #include <sys/types.h>
 #include <unistd.h>
 #include <time.h>
 
 char __log_timestamp__[32];
+
+long long current_us();
 
 /*
  * The macros below are for debugging and printing out verbose output. They are
@@ -33,7 +35,7 @@ char __log_timestamp__[32];
 
 #define debug(...) debug_cond(DEBUG_, stdout, __VA_ARGS__)
 
-#define log(...) debug_cond(1, stdout, __VA_ARGS__)
+#define log(...) debug_cond(0, stdout, __VA_ARGS__)
 
 #define verbose(active, ...) \
     do { \
@@ -126,5 +128,6 @@ char __log_timestamp__[32];
  */
 #define UNUSED(var) \
   (void)(var)
+
 
 #endif

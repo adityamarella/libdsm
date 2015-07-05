@@ -219,14 +219,12 @@ int dsm_request_getpage(dsm_request *r, dhandle chunk_id,
     return 0;
   }
 
-  log("Received getpage data=\"%s\", bytes=%"PRIu64"\n", 
+  log("Received getpage data=\"%p\", bytes=%"PRIu64"\n", 
          rep->content.getpage_rep.data,
          rep->content.getpage_rep.count); 
   
   memcpy(*page_start_addr, rep->content.getpage_rep.data,
-         rep->content.getpage_rep.count);
-
-  log("First array value %lf\n", **((double**)page_start_addr));
+         PAGESIZE);
 
   comm_free(&r->c, rep);
   return 0;

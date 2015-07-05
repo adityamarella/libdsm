@@ -196,7 +196,7 @@ void *dsm_alloc(dsm *d, dhandle chunk_id, ssize_t chunk_size) {
   }
 
   dsm_chunk_meta *chunk_meta = &d->g_dsm_page_map[chunk_id];
-  memset(chunk_meta, 0, sizeof(dsm_chunk_meta));
+  memset((void*)chunk_meta, 0, sizeof(dsm_chunk_meta));
   
   // get page size
   PAGESIZE = sysconf(_SC_PAGE_SIZE);
@@ -206,7 +206,7 @@ void *dsm_alloc(dsm *d, dhandle chunk_id, ssize_t chunk_size) {
   
   // initialize chunk related data structures
   uint32_t num_pages = 1 + (chunk_size-1)/PAGESIZE;
-  chunk_meta->g_chunk_size = chunk_size;
+  chunk_meta->g_chunk_size = chunk_size = num_pages * PAGESIZE;
   log("Num pages alloc'ed for chunk %"PRIu64": %d\n", chunk_id, num_pages);
 
   // allocate chunk memory
@@ -233,7 +233,7 @@ void *dsm_alloc(dsm *d, dhandle chunk_id, ssize_t chunk_size) {
   if ( (is_owner = dsm_request_allocchunk(d->master, chunk_id, chunk_size, d->host, d->port)) < 0) {
     handle_error("allocchunk failed\n");
   }
-  log("Allocchunk success. I am the owner?  %s.\n", 
+  printf("Allocchunk success. I am the owner?  %s.\n", 
       is_owner==1?"Yes.":"No."); 
 
   if(is_owner) {

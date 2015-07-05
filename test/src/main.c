@@ -99,8 +99,8 @@ int main(int argc, char *argv[]) {
   }
 
   //test_ping_pong(OPTIONS.host, OPTIONS.port, c.num_nodes, OPTIONS.is_master);
-  //test_matrix_mul(OPTIONS.host, OPTIONS.port, OPTIONS.node_id, c.num_nodes, OPTIONS.is_master);
-  profile(OPTIONS.host, OPTIONS.port, OPTIONS.node_id, c.num_nodes, OPTIONS.is_master);
+  test_matrix_mul(OPTIONS.host, OPTIONS.port, OPTIONS.node_id, c.num_nodes, OPTIONS.is_master);
+  //profile(OPTIONS.host, OPTIONS.port, OPTIONS.node_id, c.num_nodes, OPTIONS.is_master);
 
   dsm_conf_close(&c);
   return 0; 

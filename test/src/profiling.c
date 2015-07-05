@@ -21,15 +21,6 @@
 #endif
 
 extern volatile double tmp;
-/**
- * Get seconds from epoch
- */
-static
-long long current_us() {
-  struct timeval te;
-  gettimeofday(&te, NULL);
-  return (long long) te.tv_sec * 1000000 + te.tv_usec;
-}
 
 /**
  * Utility to print matrix
@@ -50,13 +41,10 @@ void write_matrix(double *m, int row, int col)
 static
 void access_matrix(double *m, int row, int col)
 {
-  int i, j;
-  for (i = 0; i < row; i++) {
-    for (j = 0; j < col; j++) {
-      tmp = *((double*)(m + i*col) + j);
-    }
-    printf("row %d\n", i);
+  for (int i = 0; i < row*col; i++) {
+      tmp = *(m + i);
   }
+  printf("row %f,%d,%d\n", tmp, row, col);
   printf("returning from access matrix\n");
 }
 
@@ -70,7 +58,7 @@ void generate_matrix(double *m, int row, int col)
   srandom(time(NULL));
   for (i = 0; i < row; i++) {
     for (j = 0; j < col; j++) {
-      *((double*)(m + i*col) + j) = random() % 10;
+      *(m + i*col + j) = random() % 10;
     }
   }
 }
@@ -116,9 +104,9 @@ int profile(const char* host, int port, int node_id, int nnodes, int is_master) 
   dsm_barrier_all(d);
 
   // generate write fault
-  START_TIMING(twritefault);
-  write_matrix(A, m, n);
-  END_TIMING(twritefault);
+  //START_TIMING(twritefault);
+  //write_matrix(A, m, n);
+  //END_TIMING(twritefault);
 
   // free global shared memory
   START_TIMING(tfree);
@@ -130,7 +118,7 @@ int profile(const char* host, int port, int node_id, int nnodes, int is_master) 
   dsm_close(d);
   END_TIMING(tclose);
 
-  free(d);
+  free((void*)d);
   END_TIMING(ttotal);
   
 #ifdef _MUL_STATS
