@@ -102,6 +102,7 @@ void handle_freechunk(comm *c, dsm_freechunk_args *args) {
 /**
  * The LOCATEPAGE handler.
  *
+ * NOTE: not used and not implemented correctly, 
  *
  * @param sock the endpoint connected to the client
  * @param args the client's arguments
@@ -110,32 +111,24 @@ void handle_locatepage(comm *c, dsm_locatepage_args *args) {
   UNUSED(args);
   debug("Handling locatepage for chunk %"PRIu64".\n", args->chunk_id);
 
-  uint8_t host[HOST_NAME];
-  uint32_t port = 0;
-
+  int owner_idx = -1;
   if (dsm_locatepage_internal(args->chunk_id, 
-        args->page_offset, (uint8_t**)&host, &port) < 0) {
+        args->page_offset, &owner_idx, 0) < 0) {
     handle_error(c, DSM_ENOPAGE);
     return;
   }
   
-  size_t host_name_len = strlen((char*)host) + 1;
-  size_t reply_size = dsm_rep_size(locatepage) + host_name_len;
-  dsm_rep *reply = (dsm_rep*)malloc(reply_size);
-  reply->type = LOCATEPAGE;
-  reply->content.locatepage_rep.port = port;
-  memcpy(reply->content.locatepage_rep.host, host, host_name_len);
-
-#if 0
-  // Update new new owner of page
-  strncpy(g_dsm_map[i].host, args->host, HOST_NAME);
-  g_dsm_map[i].port = args->port;
-#endif
+  //size_t host_name_len = strlen((char*)host) + 1;
+  //size_t reply_size = dsm_rep_size(locatepage) + host_name_len;
+  //dsm_rep *reply = (dsm_rep*)malloc(reply_size);
+  //reply->type = LOCATEPAGE;
+  //reply->content.locatepage_rep.port = port;
+  //memcpy(reply->content.locatepage_rep.host, host, host_name_len);
 
   // Send reply
-  if(comm_send_data(c, reply, reply_size) < 0) {
-    print_err("Failed to send LOCATEPAGE reply.\n");
-  }
+  //if(comm_send_data(c, reply, reply_size) < 0) {
+  //  print_err("Failed to send LOCATEPAGE reply.\n");
+  //}
 }
 
 

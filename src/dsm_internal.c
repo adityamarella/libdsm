@@ -114,36 +114,33 @@ dsm_really_freechunk(dhandle chunk_id) {
  * Fetch pages owned by requestor host. This is a synchronous call 
  * We wait here until all the pages owned by requestor are fetched. 
  */
-static int fetch_remotely_owned_pages(dhandle chunk_id,
-    const uint8_t *requestor_host, uint32_t requestor_port) {
+static int fetch_remotely_owned_pages(dhandle chunk_id, int requestor_idx) {
   dsm_chunk_meta *chunk_meta = &g_dsm->g_dsm_page_map[chunk_id];
-  dsm_request *requestor = get_request_object(g_dsm, requestor_host, requestor_port);
   dhandle page_offset = 0;
-  if (requestor == g_dsm->master)
+  if (requestor_idx == g_dsm->c.master_idx)
     return 0;
 
   for (page_offset = 0; page_offset < chunk_meta->count; page_offset++) {
     dsm_page_meta *m = &chunk_meta->pages[page_offset];
-    if (0 == is_same_node(requestor_host, requestor_port, m->owner_host, m->port)) {
+    if (requestor_idx == m->owner_idx) {
       char *page_start_addr = chunk_meta->g_base_ptr + page_offset * PAGESIZE;
       if (mprotect(page_start_addr, PAGESIZE, PROT_READ | PROT_WRITE) == -1) {
         print_err("mprotect failed for addr=%p, error=%s\n", page_start_addr, strerror(errno));
         return -1;
       }
-      dsm_request_getpage(requestor, chunk_id, page_offset, g_dsm->host, 
-          g_dsm->port, (uint8_t**)&page_start_addr, FLAG_PAGE_READ);
+      dsm_request_getpage(&g_dsm->clients[requestor_idx], chunk_id, page_offset, g_dsm->host, 
+          g_dsm->port, (uint8_t**)&page_start_addr, FLAG_PAGE_WRITE);
       
       // finally update the page map
       dsm_page_meta *page_meta = &chunk_meta->pages[page_offset];
       page_meta->page_prot = PROT_WRITE;
-      memcpy(page_meta->owner_host, g_dsm->host, strlen((char*)g_dsm->host) + 1);
-      page_meta->port = g_dsm->port;
+      page_meta->owner_idx = g_dsm->c.this_node_idx;
     }
   }
 
   // This will tell the node that it can safely release resources.
   // This request will reach 'MARK1' label on the requestor node
-  dsm_request_freechunk(requestor, chunk_id, g_dsm->host, g_dsm->port);
+  dsm_request_freechunk(&g_dsm->clients[requestor_idx], chunk_id, g_dsm->host, g_dsm->port);
   return 0;
 }
 
@@ -173,17 +170,17 @@ int dsm_invalidatepage_internal(dhandle chunk_id, dhandle page_offset) {
  * This function could be called from dsm_daemon thread and the main thread
  */
 int dsm_locatepage_internal(dhandle chunk_id, 
-    dhandle page_offset, uint8_t **host, uint32_t *port, uint32_t flags) {
+    dhandle page_offset, int *owner_idx, uint32_t flags) {
   UNUSED(flags);
   dsm_chunk_meta *chunk_meta = &g_dsm->g_dsm_page_map[chunk_id];
   if (page_offset > chunk_meta->count) {
     print_err("Locate page error, wrong page offset\n");
+    *owner_idx = -1;
     return -1;
   }
   log("chunk %p, %p, page owner: %"PRIu64", %"PRIu64"\n", chunk_meta, chunk_meta->pages, chunk_id, page_offset);
   dsm_page_meta *m = &chunk_meta->pages[page_offset];
-  memcpy(*host, m->owner_host, strlen((char*)m->owner_host) + 1);
-  *port = m->port;
+  *owner_idx = m->owner_idx;
   return 0;
 }
 
@@ -197,13 +194,14 @@ int dsm_getpage_internal(dhandle chunk_id, dhandle page_offset,
   UNUSED(flags);
 
   int error = 0;
+  dsm_conf *c = &g_dsm->c;
   dsm_chunk_meta *chunk_meta = &g_dsm->g_dsm_page_map[chunk_id];
   dsm_page_meta *page_meta = &chunk_meta->pages[page_offset];
+  
   log("Acquiring mutex lock, chunk_id: %"PRIu64", %"PRIu64"\n", chunk_id, page_offset);
   pthread_mutex_lock(&page_meta->lock);
-
+  
   char *base_ptr = chunk_meta->g_base_ptr;
-
   if (!g_dsm->is_master) {
     log("I am not the master. Take the page I have.\n");
     char *page_start_addr = base_ptr + page_offset*PAGESIZE;
@@ -224,50 +222,36 @@ int dsm_getpage_internal(dhandle chunk_id, dhandle page_offset,
     goto cleanup_unlock;
   }
   
-  uint8_t *owner_host = (uint8_t*)calloc(HOST_NAME, sizeof(uint8_t)); // TODO free owner_host
-  uint32_t owner_port = 0;
-
+  int owner_idx = 0;
   if ((error=dsm_locatepage_internal(chunk_id, page_offset, 
-                                     &owner_host, &owner_port, flags)) < 0) {
+                                     &owner_idx, flags)) < 0) {
     print_err("Could not locate owner for %"PRIu64", %"PRIu64".\n", chunk_id, page_offset);
-    free(owner_host);
     goto cleanup_unlock;
   }
-
-  log("Located owner for the page %s:%d\n", owner_host, owner_port);
-      
+  log("Located owner for the page %d\n", owner_idx);
+   
+  int requestor_idx = get_request_idx(g_dsm, requestor_host, requestor_port);
+  *count = PAGESIZE; 
   // check if owner host is same as this machine -
   // if yes serve the page; else get the page from owner and serve it
-  if (0 == is_same_node(owner_host, owner_port, g_dsm->host, g_dsm->port)) {
-    debug("this node is the owner %s:%d\n", owner_host, owner_port);
+  if (owner_idx == c->this_node_idx) {
     char *page_start_addr = base_ptr + page_offset*PAGESIZE;
     memcpy(*data, page_start_addr, PAGESIZE);
-    *count = PAGESIZE; 
   } else {
     // this machine is not the owner of the page
     // get the page from the owner
-    // owner host, port was fetched by dsm_locatepage_internal
-    // find the dsm_request object corresponding to owner host, port
-
-    dsm_request *owner = get_request_object(g_dsm, owner_host, owner_port);
-    //TODO handle owner == NULL case
-    
-    *count = PAGESIZE; 
-
-    if (1 == is_same_node(owner_host, owner_port, requestor_host, requestor_port)) {
-      log("Sending getpage request to %s:%d for chunk=%ld page_offset=%ld\n",
-          owner->host, owner->port, chunk_id, page_offset);
+    if (owner_idx != requestor_idx) {
+      dsm_request *owner = &g_dsm->clients[owner_idx];
       dsm_request_getpage(owner, chunk_id, 
         page_offset, g_dsm->host, g_dsm->port, data, flags);
     }
   }
 
   if (flags & FLAG_PAGE_WRITE) {
-    dsm_conf *c = &g_dsm->c;
     // Invalidate page for all hosts but the new owner
     for (int i = 0; i < c->num_nodes; i++) {
       // Continue for requester host and request port
-      if (0 == is_same_node(requestor_host, requestor_port, c->hosts[i], c->ports[i]))
+      if (i == requestor_idx)
         continue;
 
       // for master locally invalidate page
@@ -292,10 +276,8 @@ int dsm_getpage_internal(dhandle chunk_id, dhandle page_offset,
       }
     }
     // finally update the page map
-    memcpy(page_meta->owner_host, requestor_host, strlen((char*)requestor_host) + 1);
-    page_meta->port = requestor_port;
+    page_meta->owner_idx = requestor_idx;
   }
-  free(owner_host);
 
 cleanup_unlock:
   pthread_mutex_unlock(&page_meta->lock);
@@ -317,6 +299,7 @@ int dsm_allocchunk_internal(dhandle chunk_id, size_t size,
   
   log("Allocing chunk. Setting page map for chunk %"PRIu64", %zu, owner=%s, port=%d\n", 
       chunk_id, size, requestor_host, requestor_port);
+  int requestor_idx = get_request_idx(g_dsm, requestor_host, requestor_port);
   dsm_chunk_meta *chunk_meta = &g_dsm->g_dsm_page_map[chunk_id];
 
   log("Acquiring lock, chunk_id: %"PRIu64"\n", chunk_id);
@@ -338,9 +321,7 @@ int dsm_allocchunk_internal(dhandle chunk_id, size_t size,
         goto cleanup;
       }
       dsm_page_meta *m = &chunk_meta->pages[i];
-      m->chunk_id = chunk_id;
-      m->port = requestor_port;
-      strncpy((char*)m->owner_host, (char*)requestor_host, sizeof(m->owner_host));
+      m->owner_idx = requestor_idx;
     }
   } else {
     // this means some other node already created the chunk and is the owner now
@@ -362,6 +343,7 @@ cleanup:
 int dsm_freechunk_internal(dhandle chunk_id,
     const uint8_t *requestor_host, uint32_t requestor_port) {
   log("Freeing chunk %"PRIu64", requestor=%s:%d\n", chunk_id, requestor_host, requestor_port);
+  int requestor_idx = get_request_idx(g_dsm, requestor_host, requestor_port);
   dsm_chunk_meta *chunk_meta = &g_dsm->g_dsm_page_map[chunk_id];
   if (g_dsm->is_master) {
     acquire_chunk_lock(chunk_id);
@@ -371,9 +353,9 @@ int dsm_freechunk_internal(dhandle chunk_id,
       return -1;
     }
     chunk_meta->ref_counter--;
-    chunk_meta->clients_using[get_request_idx(g_dsm, requestor_host, requestor_port)] = 0;
+    chunk_meta->clients_using[requestor_idx] = 0;
     log("ref counter %d\n", chunk_meta->ref_counter);
-    fetch_remotely_owned_pages(chunk_id, requestor_host, requestor_port);
+    fetch_remotely_owned_pages(chunk_id, requestor_idx);
     release_chunk_lock(chunk_id);
   } 
   

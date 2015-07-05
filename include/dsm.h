@@ -7,16 +7,14 @@
 #include "server.h"
 
 typedef struct dsm_page_meta_struct {
-  dhandle chunk_id;                // chunk_id; this is maintained by the user
   pthread_mutex_t lock;
-  volatile int page_prot;
   volatile uint64_t nodes_reading;
+  volatile int page_prot;
+  volatile int owner_idx;   
 #ifdef _DSM_STATS
-  int num_read_faults;
-  int num_write_faults;
+  volatile sig_atomic_t num_read_faults;
+  volatile sig_atomic_t num_write_faults;
 #endif
-  uint32_t port;                    // port on the owner node is listening 
-  uint8_t owner_host[HOST_NAME];    // node which owns this memory
 } dsm_page_meta;
 
 typedef volatile struct dsm_chunk_meta_struct {
