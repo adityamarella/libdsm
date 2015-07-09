@@ -14,4 +14,5 @@ typedef struct test_options_struct {
 void test_ping_pong(const char *host, int port, int num_nodes, int is_master);
 int test_matrix_mul(const char* host, int port, int node_id, int nnodes, int is_master);
 int profile(const char* host, int port, int node_id, int nnodes, int is_master);
+int demo_matrix_mul(const char* host, int port, int node_id, int nnodes, int is_master);
 #endif
