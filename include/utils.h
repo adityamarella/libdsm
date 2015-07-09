@@ -35,7 +35,7 @@ long long current_us();
 
 #define debug(...) debug_cond(DEBUG_, stdout, __VA_ARGS__)
 
-#define log(...) debug_cond(0, stdout, __VA_ARGS__)
+#define log(...) debug_cond(1, stdout, __VA_ARGS__)
 
 #define verbose(active, ...) \
     do { \
