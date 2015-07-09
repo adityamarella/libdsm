@@ -161,6 +161,7 @@ int dsm_invalidatepage_internal(dhandle chunk_id, dhandle page_offset) {
   }
   pthread_mutex_lock(&page_meta->lock);
   page_meta->page_prot = PROT_NONE;
+  page_meta->nodes_reading[g_dsm->c.this_node_idx] = 0;
   pthread_mutex_unlock(&page_meta->lock);
   log("Released lock, chunk_id: %"PRIu64", %"PRIu64"\n", chunk_id, page_offset);
   return 0;
@@ -184,6 +185,30 @@ int dsm_locatepage_internal(dhandle chunk_id,
   return 0;
 }
 
+static
+int dsm_getpage_internal_nonmaster(dsm_chunk_meta *chunk_meta, dhandle page_offset, 
+    uint8_t **data, uint64_t *count, uint32_t flags) {
+  log("I am not the master. Take the page I have.\n");
+  int error = 0;
+  dsm_page_meta *page_meta = &chunk_meta->pages[page_offset];
+  char *base_ptr = chunk_meta->g_base_ptr;
+  char *page_start_addr = base_ptr + page_offset*PAGESIZE;
+  memcpy(*data, page_start_addr, PAGESIZE);
+  *count = PAGESIZE; 
+
+  if (flags & FLAG_PAGE_WRITE) {
+    // Change permissions to NONE
+    // set the new owner for this page
+    if ( (error = mprotect(page_start_addr, PAGESIZE, PROT_NONE)) == -1) {
+      print_err("mprotect failed for addr=%p, error=%s\n", page_start_addr, strerror(errno));
+      return -1;
+    }
+    page_meta->page_prot = PROT_NONE;
+    page_meta->nodes_reading[g_dsm->c.this_node_idx] = 0;
+  }
+  return 0;
+}
+
 /**
  * This function could be called from dsm_daemon thread and the main thread
  */
@@ -203,22 +228,7 @@ int dsm_getpage_internal(dhandle chunk_id, dhandle page_offset,
   
   char *base_ptr = chunk_meta->g_base_ptr;
   if (!g_dsm->is_master) {
-    log("I am not the master. Take the page I have.\n");
-    char *page_start_addr = base_ptr + page_offset*PAGESIZE;
-    memcpy(*data, page_start_addr, PAGESIZE);
-    *count = PAGESIZE; 
-
-    if (flags & FLAG_PAGE_WRITE) {
-      // Change permissions to NONE
-      // set the new owner for this page
-      log("Client %s:%d requested write access chunk_id=%ld page_offset=%ld. Changing protection to PROT_NONE.\n",
-          requestor_host, requestor_port, chunk_id, page_offset);
-      if ( (error = mprotect(page_start_addr, PAGESIZE, PROT_NONE)) == -1) {
-        print_err("mprotect failed for addr=%p, error=%s\n", page_start_addr, strerror(errno));
-        goto cleanup_unlock;
-      }
-      page_meta->page_prot = PROT_NONE;
-    } 
+    error = dsm_getpage_internal_nonmaster(chunk_meta, page_offset, data, count, flags);
     goto cleanup_unlock;
   }
   
@@ -234,7 +244,7 @@ int dsm_getpage_internal(dhandle chunk_id, dhandle page_offset,
   *count = PAGESIZE; 
   // check if owner host is same as this machine -
   // if yes serve the page; else get the page from owner and serve it
-  if (owner_idx == c->this_node_idx) {
+  if (owner_idx == c->this_node_idx || page_meta->nodes_reading[c->this_node_idx]) {
     char *page_start_addr = base_ptr + page_offset*PAGESIZE;
     memcpy(*data, page_start_addr, PAGESIZE);
   } else {
@@ -242,8 +252,21 @@ int dsm_getpage_internal(dhandle chunk_id, dhandle page_offset,
     // get the page from the owner
     if (owner_idx != requestor_idx) {
       dsm_request *owner = &g_dsm->clients[owner_idx];
+      char *page_start_addr = base_ptr + page_offset*PAGESIZE;
       dsm_request_getpage(owner, chunk_id, 
         page_offset, g_dsm->host, g_dsm->port, data, flags);
+
+      if ((error=mprotect(page_start_addr, PAGESIZE, PROT_WRITE|PROT_READ)) == -1) {
+        print_err("mprotect failed for addr=%p, error=%s\n", page_start_addr, strerror(errno));
+        goto cleanup_unlock;
+      }
+      memcpy(page_start_addr, *data, PAGESIZE);
+      page_meta->page_prot = PROT_READ;
+      page_meta->nodes_reading[c->this_node_idx] = 1;
+      if ((error=mprotect(page_start_addr, PAGESIZE, PROT_READ)) == -1) {
+        print_err("mprotect failed for addr=%p, error=%s\n", page_start_addr, strerror(errno));
+        goto cleanup_unlock;
+      }
     }
   }
 
@@ -263,6 +286,7 @@ int dsm_getpage_internal(dhandle chunk_id, dhandle page_offset,
             goto cleanup_unlock;
           }
           page_meta->page_prot = PROT_NONE;
+          page_meta->nodes_reading[c->this_node_idx] = 0;
         }
         continue;
       }

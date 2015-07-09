@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/time.h>
-
+#include <sys/mman.h>
 
 #define _MUL_STATS 1
 #define ARR(A,cols,i,j) *((double*)(A + i*cols) + j)
@@ -47,24 +47,24 @@ void print_matrix(double *m, int row, int col)
 }
 
 static
-void generate_matrix(double **lm, int row, int col)
+void generate_matrix(double *lm, int row, int col)
 {
   int i, j;
   srandom(time(NULL));
   for (i = 0; i < row; i++) {
     for (j = 0; j < col; j++) {
-     lm[i][j] = (double)(random()%1000000) / (double)(random()%1000);
+     lm[i*col+j] = (double)(random()%1000000) / (double)(random()%1000);
     }
   }
 }
 
-void multiply_locally(double **lA, double **lB, double **lC, int m, int n, int p) {
+void multiply_locally(double *lA, double *lB, double *lC, int m, int n, int p, int nnodes) {
   int i, j, k;
   #pragma omp parallel for private(i) 
-  for (i = 0; i < m; i++) {
+  for (i = 0; i < m/nnodes; i++) {
     for (j = 0; j < p; j++) {
       for(k = 0; k < n; k++) {
-        lC[i][j] += lA[i][k] * lB[k][j];
+        lC[i*p+j] += lA[i*n+k] * lB[k*p+j];
       }
     }
   }
@@ -73,7 +73,7 @@ void multiply_locally(double **lA, double **lB, double **lC, int m, int n, int p
 int main(int argc, char **argv) {
   int i, m, n, p;
 
-  double **lA, **lB, **lC;
+  double *lA, *lB, *lC;
 #ifdef _MUL_STATS
   long long tcompute=0, ttotal=0;
 #endif
@@ -85,24 +85,22 @@ int main(int argc, char **argv) {
   START_TIMING(ttotal);
 
   // allocate local memory 
-  lA = (double**)calloc(m, sizeof(double*));
-  lB = (double**)calloc(n, sizeof(double*));
-  lC = (double**)calloc(m, sizeof(double*));
-
-  for (i = 0; i < m; i++) {
-    lA[i] = (double*)calloc(n, sizeof(double));
-    lC[i] = (double*)calloc(p, sizeof(double));
-  }
+  lA = (double*)calloc(m*n, sizeof(double));
+  lB = (double*)calloc(n*p, sizeof(double));
+  lC = (double*)calloc(m*p, sizeof(double));
   
-  for (i = 0; i < m; i++)
-    lB[i] = (double*)calloc(p, sizeof(double));
+  mprotect(lA, m*n*sizeof(double), PROT_READ | PROT_WRITE);
+  mprotect(lB, n*p*sizeof(double), PROT_READ | PROT_WRITE);
 
   // initialize input matrices
   generate_matrix(lA, m, n);
   generate_matrix(lB, n, p);
   
+  mprotect(lA, m*n*sizeof(double), PROT_READ);
+  mprotect(lB, n*p*sizeof(double), PROT_READ);
+
   START_TIMING(tcompute);
-  multiply_locally(lA, lB, lC, m, n, p);
+  multiply_locally(lA, lB, lC, m, n, p, atoi(argv[2]));
   END_TIMING(tcompute);
   
   free(lC);

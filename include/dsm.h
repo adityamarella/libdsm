@@ -8,7 +8,7 @@
 
 typedef struct dsm_page_meta_struct {
   pthread_mutex_t lock;
-  volatile uint64_t nodes_reading;
+  volatile int nodes_reading[64];
   volatile int page_prot;
   volatile int owner_idx;   
 #ifdef _DSM_STATS

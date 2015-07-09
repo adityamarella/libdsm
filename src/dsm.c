@@ -116,6 +116,7 @@ void dsm_sigsegv_handler(int sig, siginfo_t *si, void *ctxt) {
   
   // Build page offset
   dhandle page_offset = (dhandle)get_page_offset((char *)(si->si_addr), base_ptr);
+  dsm_page_meta *page_meta = &chunk_meta->pages[page_offset];
   char *page_start_addr = base_ptr + PAGESIZE*page_offset;
 
   // this works on x86_64 GNU/Linux 
@@ -127,23 +128,23 @@ void dsm_sigsegv_handler(int sig, siginfo_t *si, void *ctxt) {
 
 #ifdef _DSM_STATS
   if (write_fault)
-    chunk_meta->pages[page_offset].num_write_faults++;
+    page_meta->num_write_faults++;
   else
-    chunk_meta->pages[page_offset].num_read_faults++;
+    page_meta->num_read_faults++;
 #endif
 
   // Use a state transition table for this later?
-  if (chunk_meta->pages[page_offset].page_prot == PROT_NONE) {
+  if (page_meta->page_prot == PROT_NONE) {
     if (write_fault) {
       flags |= FLAG_PAGE_WRITE;
-      chunk_meta->pages[page_offset].page_prot = PROT_WRITE;
+      page_meta->page_prot = PROT_WRITE;
     } else {
       flags |= FLAG_PAGE_READ;
-      chunk_meta->pages[page_offset].page_prot = PROT_READ;
+      page_meta->page_prot = PROT_READ;
     }
-  } else if (chunk_meta->pages[page_offset].page_prot == PROT_READ) {
+  } else if (page_meta->page_prot == PROT_READ) {
     flags |= FLAG_PAGE_WRITE;
-    chunk_meta->pages[page_offset].page_prot = PROT_WRITE;
+    page_meta->page_prot = PROT_WRITE;
   }
  
   // Request page from master
@@ -168,6 +169,7 @@ void dsm_sigsegv_handler(int sig, siginfo_t *si, void *ctxt) {
     if (mprotect(page_start_addr, PAGESIZE, PROT_READ) == -1)
       print_err("mprotect\n");
   }
+  page_meta->nodes_reading[g_dsm->c.this_node_idx] = 1;
 }
 
 

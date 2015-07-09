@@ -191,7 +191,7 @@ int dsm_request_locatepage(dsm_request *r, dhandle chunk_id,
 int dsm_request_getpage(dsm_request *r, dhandle chunk_id, 
     dhandle page_offset, uint8_t *host, uint32_t port, 
     uint8_t **page_start_addr, uint32_t flags) {
-  log("Sending getpage %"PRIu64", %"PRIu64", %s:%d\n", chunk_id, page_offset, host, port);
+  log("Sending getpage %"PRIu64", %"PRIu64" to %s:%d\n", chunk_id, page_offset, r->host, r->port);
   size_t host_len = strlen((char*)host) + 1;
   size_t req_size = dsm_req_size(getpage) + host_len*sizeof(uint8_t); 
   dsm_req *req = (dsm_req*)malloc(req_size);
@@ -254,7 +254,7 @@ int dsm_request_invalidatepage(dsm_request *r, dhandle chunk_id,
   memcpy(args->requestor_host, host, host_len);
  
 
-  log("Sending invalidatepage %"PRIu64", %"PRIu64", %s:%d\n", chunk_id, page_offset, host, port);
+  log("Sending invalidatepage %"PRIu64", %"PRIu64" to %s:%d\n", chunk_id, page_offset, r->host, r->port);
 
   dsm_rep *rep = dsm_request_req_rep(r, req, req_size);
   free(req);
